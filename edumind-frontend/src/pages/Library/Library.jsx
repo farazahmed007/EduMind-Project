@@ -1,64 +1,49 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import LibraryHeader from "../../components/library/LibraryHeader";
 import LibraryToolbar from "../../components/library/LibraryToolbar";
 import LibraryTabs from "../../components/library/LibraryTabs";
 import MaterialGrid from "../../components/library/MaterialGrid";
 
-const initialMaterials = [
-  {
-    id: 1,
-    title: "Machine Learning Fundamentals",
-    type: "PDF",
-    size: "2.4 MB",
-    time: "2 hours ago",
-  },
-  {
-    id: 2,
-    title: "Computer Networks",
-    type: "PPT",
-    size: "4.2 MB",
-    time: "Yesterday",
-  },
-  {
-    id: 3,
-    title: "Java OOP Concepts",
-    type: "PDF",
-    size: "1.8 MB",
-    time: "Yesterday",
-  },
-  {
-    id: 4,
-    title: "Database Management Systems",
-    type: "DOC",
-    size: "1.2 MB",
-    time: "2 days ago",
-  },
-  {
-    id: 5,
-    title: "Cloud Computing",
-    type: "PDF",
-    size: "3.6 MB",
-    time: "3 days ago",
-  },
-  {
-    id: 6,
-    title: "Cyber Security Notes",
-    type: "PDF",
-    size: "2.1 MB",
-    time: "4 days ago",
-  },
-];
-
 function Library() {
-  const [uploadedMaterials, setUploadedMaterials] =
-    useState(initialMaterials);
+  const [uploadedMaterials, setUploadedMaterials] = useState([]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [sortOption, setSortOption] = useState("recent");
 
-  // Upload material
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  // Fetch materials from FastAPI
+  useEffect(() => {
+    const fetchMaterials = async () => {
+      try {
+        setIsLoading(true);
+        setError("");
+
+        const response = await fetch(
+          "http://127.0.0.1:8000/api/materials/"
+        );
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch materials");
+        }
+
+        const data = await response.json();
+
+        setUploadedMaterials(data);
+      } catch (err) {
+        console.error("Error fetching materials:", err);
+        setError("Unable to load materials from the backend.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchMaterials();
+  }, []);
+
   const handleUpload = (file) => {
     const extension = file.name.split(".").pop().toUpperCase();
 
@@ -76,14 +61,12 @@ function Library() {
     ]);
   };
 
-  // Delete material
   const handleDelete = (id) => {
     setUploadedMaterials((previous) =>
       previous.filter((material) => material.id !== id)
     );
   };
 
-  // Rename material
   const handleRename = (id, newTitle) => {
     setUploadedMaterials((previous) =>
       previous.map((material) =>
@@ -94,11 +77,10 @@ function Library() {
     );
   };
 
-  // Search + Filter + Sort
   const displayedMaterials = useMemo(() => {
     let result = [...uploadedMaterials];
 
-    // 🔍 Search
+    // Search
     if (searchQuery.trim()) {
       result = result.filter((material) =>
         material.title
@@ -107,14 +89,14 @@ function Library() {
       );
     }
 
-    // 📁 Filter
+    // Filter
     if (typeFilter !== "ALL") {
       result = result.filter(
         (material) => material.type === typeFilter
       );
     }
 
-    // ↕️ Sort
+    // Sort
     if (sortOption === "name-asc") {
       result.sort((a, b) =>
         a.title.localeCompare(b.title)
@@ -138,10 +120,8 @@ function Library() {
   return (
     <div className="min-h-full bg-[#EEEEEE] px-4 py-5 sm:px-6 lg:px-8">
 
-      {/* Header */}
       <LibraryHeader />
 
-      {/* Search / Filter / Upload */}
       <LibraryToolbar
         onUpload={handleUpload}
         searchQuery={searchQuery}
@@ -152,17 +132,33 @@ function Library() {
         setSortOption={setSortOption}
       />
 
-      {/* Categories */}
       <LibraryTabs />
 
-      {/* Materials */}
-      <MaterialGrid
-        uploadedMaterials={displayedMaterials}
-        onDelete={handleDelete}
-        onRename={handleRename}
-        searchQuery={searchQuery}
-        onClearSearch={() => setSearchQuery("")}
-      />
+      {isLoading ? (
+        <section className="mt-6 rounded-2xl bg-white px-6 py-16 text-center">
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-[#2FA084]" />
+
+          <p className="mt-4 text-sm text-gray-500">
+            Loading your materials...
+          </p>
+        </section>
+      ) : error ? (
+        <section className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-6 py-12 text-center">
+          <h3 className="text-lg font-semibold text-red-600">
+            Failed to load materials
+          </h3>
+
+          <p className="mt-2 text-sm text-red-500">
+            {error}
+          </p>
+        </section>
+      ) : (
+        <MaterialGrid
+          uploadedMaterials={displayedMaterials}
+          onDelete={handleDelete}
+          onRename={handleRename}
+        />
+      )}
 
     </div>
   );
