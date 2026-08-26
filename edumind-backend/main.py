@@ -1,6 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from api.materials import router as materials_router
+from core.database import Base, engine
+from models.material import Material
+
+
+# Create database tables
+Base.metadata.create_all(bind=engine)
 
 
 app = FastAPI(
@@ -22,7 +29,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 app.include_router(materials_router)
+
 
 @app.get("/")
 def root():

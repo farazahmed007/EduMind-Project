@@ -1,5 +1,11 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
+from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
+from pathlib import Path
+from uuid import uuid4
+
+from core.database import get_db
+from models.material import Material
 
 
 router = APIRouter(
@@ -8,137 +14,254 @@ router = APIRouter(
 )
 
 
-materials = [
-    {
-        "id": 1,
-        "title": "Machine Learning Fundamentals",
-        "type": "PDF",
-        "size": "2.4 MB",
-        "time": "2 hours ago",
-    },
-    {
-        "id": 2,
-        "title": "Computer Networks",
-        "type": "PPT",
-        "size": "4.2 MB",
-        "time": "Yesterday",
-    },
-    {
-        "id": 3,
-        "title": "Java OOP Concepts",
-        "type": "PDF",
-        "size": "1.8 MB",
-        "time": "Yesterday",
-    },
-]
+# --------------------------------------------------
+# Paths
+# --------------------------------------------------
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+UPLOAD_DIR = BASE_DIR / "uploads"
+
+UPLOAD_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
 
 
-# =========================
-# Rename Request Schema
-# =========================
-
-class MaterialUpdate(BaseModel):
-    title: str
-
-
-# =========================
+# --------------------------------------------------
 # GET ALL MATERIALS
-# =========================
+# --------------------------------------------------
 
 @router.get("/")
-def get_materials():
+def get_materials(
+    db: Session = Depends(get_db),
+):
+    materials = (
+        db.query(Material)
+        .order_by(Material.id.desc())
+        .all()
+    )
+
     return materials
 
 
-# =========================
-# CREATE / UPLOAD MATERIAL
-# =========================
+# --------------------------------------------------
+# POST - UPLOAD MATERIAL
+# --------------------------------------------------
 
 @router.post("/")
-async def create_material(file: UploadFile = File(...)):
+async def create_material(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
 
-    content = await file.read()
+    if not file.filename:
+        raise HTTPException(
+            status_code=400,
+            detail="Filename is required.",
+        )
 
-    extension = file.filename.split(".")[-1].upper()
+    # Get extension
+    extension = (
+        Path(file.filename)
+        .suffix
+        .replace(".", "")
+        .upper()
+    )
 
+    # Convert file extensions to frontend types
     if extension == "PPTX":
         material_type = "PPT"
+
     elif extension == "DOCX":
         material_type = "DOC"
+
     else:
         material_type = extension
 
-    new_material = {
-        "id": max(
-            [material["id"] for material in materials],
-            default=0
-        ) + 1,
+    # Generate unique filename
+    unique_filename = (
+        f"{uuid4().hex}{Path(file.filename).suffix.lower()}"
+    )
 
-        "title": file.filename,
+    file_path = UPLOAD_DIR / unique_filename
 
-        "type": material_type,
+    # Save physical file
+    content = await file.read()
 
-        "size": f"{len(content) / (1024 * 1024):.2f} MB",
+    with open(file_path, "wb") as buffer:
+        buffer.write(content)
 
-        "time": "Just now",
-    }
+    # Create database record
+    new_material = Material(
+        title=file.filename,
+        type=material_type,
+        size=f"{len(content) / (1024 * 1024):.2f} MB",
+        time="Just now",
+        file_path=f"uploads/{unique_filename}",
+    )
 
-    materials.insert(0, new_material)
+    db.add(new_material)
+    db.commit()
+    db.refresh(new_material)
 
     return new_material
 
 
-# =========================
-# DELETE MATERIAL
-# =========================
+# --------------------------------------------------
+# GET - OPEN MATERIAL FILE
+# --------------------------------------------------
 
-@router.delete("/{material_id}")
-def delete_material(material_id: int):
-
-    for material in materials:
-
-        if material["id"] == material_id:
-
-            materials.remove(material)
-
-            return {
-                "message": "Material deleted successfully",
-                "id": material_id,
-            }
-
-    raise HTTPException(
-        status_code=404,
-        detail="Material not found",
-    )
-
-
-# =========================
-# RENAME / UPDATE MATERIAL
-# =========================
-
-@router.patch("/{material_id}")
-def update_material(
+@router.get("/{material_id}/file")
+def get_material_file(
     material_id: int,
-    material_update: MaterialUpdate,
+    db: Session = Depends(get_db),
 ):
 
-    new_title = material_update.title.strip()
+    # Find material in database
+    material = (
+        db.query(Material)
+        .filter(Material.id == material_id)
+        .first()
+    )
 
-    if not new_title:
+    if not material:
         raise HTTPException(
-            status_code=400,
-            detail="Title cannot be empty",
+            status_code=404,
+            detail="Material not found.",
         )
 
-    for material in materials:
+    # Make sure file_path exists
+    if not material.file_path:
+        raise HTTPException(
+            status_code=404,
+            detail="File is not available for this material.",
+        )
 
-        if material["id"] == material_id:
+    # Build physical file path
+    file_path = BASE_DIR / material.file_path
 
-            material["title"] = new_title
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Physical file not found.",
+        )
 
-            return material
+    # --------------------------------------------------
+    # Determine MIME type
+    # --------------------------------------------------
 
-    raise HTTPException(
-        status_code=404,
-        detail="Material not found",
+    suffix = file_path.suffix.lower()
+
+    media_types = {
+        ".pdf": "application/pdf",
+
+        ".ppt": "application/vnd.ms-powerpoint",
+
+        ".pptx": (
+            "application/vnd.openxmlformats-officedocument."
+            "presentationml.presentation"
+        ),
+
+        ".doc": "application/msword",
+
+        ".docx": (
+            "application/vnd.openxmlformats-officedocument."
+            "wordprocessingml.document"
+        ),
+
+        ".txt": "text/plain",
+    }
+
+    media_type = media_types.get(
+        suffix,
+        "application/octet-stream",
     )
+
+    # --------------------------------------------------
+    # Return file INLINE
+    # --------------------------------------------------
+    #
+    # For PDFs this allows the browser to display
+    # the document instead of forcing a download.
+    #
+    # --------------------------------------------------
+
+    return FileResponse(
+        path=file_path,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": "inline",
+        },
+    )
+
+
+# --------------------------------------------------
+# DELETE MATERIAL
+# --------------------------------------------------
+
+@router.delete("/{material_id}")
+def delete_material(
+    material_id: int,
+    db: Session = Depends(get_db),
+):
+
+    material = (
+        db.query(Material)
+        .filter(Material.id == material_id)
+        .first()
+    )
+
+    if not material:
+        raise HTTPException(
+            status_code=404,
+            detail="Material not found.",
+        )
+
+    # Delete physical file
+    if material.file_path:
+
+        file_path = BASE_DIR / material.file_path
+
+        if file_path.exists():
+            file_path.unlink()
+
+    # Delete database record
+    db.delete(material)
+    db.commit()
+
+    return {
+        "message": "Material deleted successfully",
+        "id": material_id,
+    }
+
+
+# --------------------------------------------------
+# PATCH - RENAME MATERIAL
+# --------------------------------------------------
+
+@router.patch("/{material_id}")
+def rename_material(
+    material_id: int,
+    new_title: str,
+    db: Session = Depends(get_db),
+):
+
+    material = (
+        db.query(Material)
+        .filter(Material.id == material_id)
+        .first()
+    )
+
+    if not material:
+        raise HTTPException(
+            status_code=404,
+            detail="Material not found.",
+        )
+
+    material.title = new_title
+
+    db.commit()
+    db.refresh(material)
+
+    return material

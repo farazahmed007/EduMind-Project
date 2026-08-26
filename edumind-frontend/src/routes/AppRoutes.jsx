@@ -11,7 +11,6 @@ import Analytics from "../pages/Analytics/Analytics";
 import Planner from "../pages/Planner/Planner";
 import Exam from "../pages/Exam/Exam";
 import MaterialDetails from "../pages/Library/MaterialDetails";
-import LearningLibrary from "../pages/Library/LearningLibrary";
 
 export default function AppRoutes() {
     return (
@@ -24,9 +23,10 @@ export default function AppRoutes() {
 
                     <Route path="/library" element={<Library />} />
 
-                    <Route path="/library" element={<LearningLibrary />} />
-
-                    <Route path="/library/material/:id" element={<MaterialDetails />} />
+                    <Route
+                        path="/library/:id"
+                        element={<MaterialDetails />}
+                    />
 
                     <Route path="/tutor" element={<Tutor />} />
 

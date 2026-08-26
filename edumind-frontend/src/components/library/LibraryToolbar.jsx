@@ -16,7 +16,8 @@ function LibraryToolbar({
   sortOption,
   setSortOption,
 }) {
-  const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isUploadOpen, setIsUploadOpen] =
+    useState(false);
 
   return (
     <>
@@ -33,7 +34,9 @@ function LibraryToolbar({
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) =>
+              setSearchQuery(e.target.value)
+            }
             placeholder="Search your materials..."
             className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm outline-none transition focus:border-[#2FA084] focus:ring-2 focus:ring-[#6FCF97]/30"
           />
@@ -53,13 +56,26 @@ function LibraryToolbar({
 
             <select
               value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
+              onChange={(e) =>
+                setTypeFilter(e.target.value)
+              }
               className="appearance-none rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-9 text-sm font-medium text-gray-600 outline-none transition focus:border-[#2FA084] focus:ring-2 focus:ring-[#6FCF97]/30"
             >
-              <option value="ALL">All Types</option>
-              <option value="PDF">PDF</option>
-              <option value="PPT">PPT</option>
-              <option value="DOC">DOC</option>
+              <option value="ALL">
+                All Types
+              </option>
+
+              <option value="PDF">
+                PDF
+              </option>
+
+              <option value="PPT">
+                PPT
+              </option>
+
+              <option value="DOC">
+                DOC
+              </option>
             </select>
 
           </div>
@@ -67,20 +83,33 @@ function LibraryToolbar({
           {/* Sort */}
           <select
             value={sortOption}
-            onChange={(e) => setSortOption(e.target.value)}
+            onChange={(e) =>
+              setSortOption(e.target.value)
+            }
             className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium text-gray-600 outline-none transition focus:border-[#2FA084] focus:ring-2 focus:ring-[#6FCF97]/30"
           >
-            <option value="recent">Recently Added</option>
-            <option value="name-asc">Name: A → Z</option>
-            <option value="name-desc">Name: Z → A</option>
+            <option value="recent">
+              Recently Added
+            </option>
+
+            <option value="name-asc">
+              Name: A → Z
+            </option>
+
+            <option value="name-desc">
+              Name: Z → A
+            </option>
           </select>
 
           {/* Upload */}
           <button
-            onClick={() => setIsUploadOpen(true)}
+            onClick={() =>
+              setIsUploadOpen(true)
+            }
             className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#2FA084] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#1F6F5F] sm:flex-none"
           >
             <Upload size={17} />
+
             Upload Material
           </button>
 
@@ -90,7 +119,9 @@ function LibraryToolbar({
 
       <UploadModal
         isOpen={isUploadOpen}
-        onClose={() => setIsUploadOpen(false)}
+        onClose={() =>
+          setIsUploadOpen(false)
+        }
         onUpload={onUpload}
       />
     </>

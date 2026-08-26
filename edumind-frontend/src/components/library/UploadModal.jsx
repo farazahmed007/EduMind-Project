@@ -64,28 +64,25 @@ function UploadModal({ isOpen, onClose, onUpload }) {
       setIsUploading(true);
       setUploadError("");
 
-      const formData = new FormData();
+      /*
+       * IMPORTANT:
+       * UploadModal does NOT upload directly anymore.
+       *
+       * It sends the actual File object to Library.jsx.
+       *
+       * Library.jsx is responsible for:
+       * File -> FormData -> FastAPI -> PostgreSQL
+       */
+      const uploadSuccessful = await onUpload(selectedFile);
 
-      formData.append("file", selectedFile);
-
-      const response = await fetch(
-        "http://127.0.0.1:8000/api/materials/",
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error("Failed to upload material.");
+      if (!uploadSuccessful) {
+        setUploadError(
+          "Upload failed. Please make sure the backend is running."
+        );
+        return;
       }
 
-      const createdMaterial = await response.json();
-
-      // Send the material returned by FastAPI
-      // back to Library.jsx
-      onUpload(createdMaterial);
-
+      // Upload was successful
       setSelectedFile(null);
 
       if (fileInputRef.current) {
@@ -97,7 +94,7 @@ function UploadModal({ isOpen, onClose, onUpload }) {
       console.error("Upload error:", error);
 
       setUploadError(
-        "Upload failed. Please make sure the backend is running."
+        "Upload failed. Please try again."
       );
     } finally {
       setIsUploading(false);
