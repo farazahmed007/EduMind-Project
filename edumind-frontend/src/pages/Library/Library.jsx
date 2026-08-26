@@ -51,12 +51,14 @@ const initialMaterials = [
 ];
 
 function Library() {
-  const [uploadedMaterials, setUploadedMaterials] = useState(initialMaterials);
+  const [uploadedMaterials, setUploadedMaterials] =
+    useState(initialMaterials);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [sortOption, setSortOption] = useState("recent");
 
+  // Upload material
   const handleUpload = (file) => {
     const extension = file.name.split(".").pop().toUpperCase();
 
@@ -74,6 +76,25 @@ function Library() {
     ]);
   };
 
+  // Delete material
+  const handleDelete = (id) => {
+    setUploadedMaterials((previous) =>
+      previous.filter((material) => material.id !== id)
+    );
+  };
+
+  // Rename material
+  const handleRename = (id, newTitle) => {
+    setUploadedMaterials((previous) =>
+      previous.map((material) =>
+        material.id === id
+          ? { ...material, title: newTitle }
+          : material
+      )
+    );
+  };
+
+  // Search + Filter + Sort
   const displayedMaterials = useMemo(() => {
     let result = [...uploadedMaterials];
 
@@ -117,8 +138,10 @@ function Library() {
   return (
     <div className="min-h-full bg-[#EEEEEE] px-4 py-5 sm:px-6 lg:px-8">
 
+      {/* Header */}
       <LibraryHeader />
 
+      {/* Search / Filter / Upload */}
       <LibraryToolbar
         onUpload={handleUpload}
         searchQuery={searchQuery}
@@ -129,10 +152,16 @@ function Library() {
         setSortOption={setSortOption}
       />
 
+      {/* Categories */}
       <LibraryTabs />
 
+      {/* Materials */}
       <MaterialGrid
         uploadedMaterials={displayedMaterials}
+        onDelete={handleDelete}
+        onRename={handleRename}
+        searchQuery={searchQuery}
+        onClearSearch={() => setSearchQuery("")}
       />
 
     </div>
