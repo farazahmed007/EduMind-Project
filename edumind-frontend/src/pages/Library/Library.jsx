@@ -5,6 +5,8 @@ import LibraryToolbar from "../../components/library/LibraryToolbar";
 import LibraryTabs from "../../components/library/LibraryTabs";
 import MaterialGrid from "../../components/library/MaterialGrid";
 
+const API_URL = "http://127.0.0.1:8000/api/materials";
+
 function Library() {
   const [uploadedMaterials, setUploadedMaterials] = useState([]);
 
@@ -15,16 +17,17 @@ function Library() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Fetch materials from FastAPI
+  // =========================
+  // FETCH MATERIALS
+  // =========================
+
   useEffect(() => {
     const fetchMaterials = async () => {
       try {
         setIsLoading(true);
         setError("");
 
-        const response = await fetch(
-          "http://127.0.0.1:8000/api/materials/"
-        );
+        const response = await fetch(`${API_URL}/`);
 
         if (!response.ok) {
           throw new Error("Failed to fetch materials");
@@ -44,38 +47,118 @@ function Library() {
     fetchMaterials();
   }, []);
 
-  const handleUpload = (file) => {
-    const extension = file.name.split(".").pop().toUpperCase();
+  // =========================
+  // UPLOAD MATERIAL
+  // =========================
 
-    const newMaterial = {
-      id: Date.now(),
-      title: file.name,
-      type: extension === "PPTX" ? "PPT" : extension,
-      size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
-      time: "Just now",
-    };
+  const handleUpload = async (file) => {
+    if (!file) return;
 
-    setUploadedMaterials((previous) => [
-      newMaterial,
-      ...previous,
-    ]);
+    try {
+      const formData = new FormData();
+
+      formData.append("file", file);
+
+      const response = await fetch(`${API_URL}/`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to upload material");
+      }
+
+      const newMaterial = await response.json();
+
+      setUploadedMaterials((previous) => [
+        newMaterial,
+        ...previous,
+      ]);
+    } catch (err) {
+      console.error("Error uploading material:", err);
+      alert("Unable to upload material.");
+    }
   };
 
-  const handleDelete = (id) => {
-    setUploadedMaterials((previous) =>
-      previous.filter((material) => material.id !== id)
-    );
+  // =========================
+  // DELETE MATERIAL
+  // =========================
+
+  const handleDelete = async (id) => {
+    try {
+      const response = await fetch(
+        `${API_URL}/${id}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to delete material");
+      }
+
+      setUploadedMaterials((previous) =>
+        previous.filter(
+          (material) => material.id !== id
+        )
+      );
+    } catch (err) {
+      console.error("Error deleting material:", err);
+      alert("Unable to delete material.");
+    }
   };
 
-  const handleRename = (id, newTitle) => {
-    setUploadedMaterials((previous) =>
-      previous.map((material) =>
-        material.id === id
-          ? { ...material, title: newTitle }
-          : material
-      )
-    );
+  // =========================
+  // RENAME MATERIAL
+  // =========================
+
+  const handleRename = async (id, newTitle) => {
+    const trimmedTitle = newTitle.trim();
+
+    if (!trimmedTitle) {
+      alert("Material title cannot be empty.");
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `${API_URL}/${id}`,
+        {
+          method: "PATCH",
+
+          headers: {
+            "Content-Type": "application/json",
+          },
+
+          body: JSON.stringify({
+            title: trimmedTitle,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to rename material");
+      }
+
+      const updatedMaterial = await response.json();
+
+      setUploadedMaterials((previous) =>
+        previous.map((material) =>
+          material.id === id
+            ? updatedMaterial
+            : material
+        )
+      );
+
+    } catch (err) {
+      console.error("Error renaming material:", err);
+      alert("Unable to rename material.");
+    }
   };
+
+  // =========================
+  // SEARCH / FILTER / SORT
+  // =========================
 
   const displayedMaterials = useMemo(() => {
     let result = [...uploadedMaterials];
@@ -117,6 +200,10 @@ function Library() {
     sortOption,
   ]);
 
+  // =========================
+  // UI
+  // =========================
+
   return (
     <div className="min-h-full bg-[#EEEEEE] px-4 py-5 sm:px-6 lg:px-8">
 
@@ -136,14 +223,17 @@ function Library() {
 
       {isLoading ? (
         <section className="mt-6 rounded-2xl bg-white px-6 py-16 text-center">
+
           <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-[#2FA084]" />
 
           <p className="mt-4 text-sm text-gray-500">
             Loading your materials...
           </p>
+
         </section>
       ) : error ? (
         <section className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-6 py-12 text-center">
+
           <h3 className="text-lg font-semibold text-red-600">
             Failed to load materials
           </h3>
@@ -151,6 +241,7 @@ function Library() {
           <p className="mt-2 text-sm text-red-500">
             {error}
           </p>
+
         </section>
       ) : (
         <MaterialGrid

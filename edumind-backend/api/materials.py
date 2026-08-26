@@ -1,4 +1,6 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
+from pydantic import BaseModel
+
 
 router = APIRouter(
     prefix="/api/materials",
@@ -31,47 +33,112 @@ materials = [
 ]
 
 
+# =========================
+# Rename Request Schema
+# =========================
+
+class MaterialUpdate(BaseModel):
+    title: str
+
+
+# =========================
+# GET ALL MATERIALS
+# =========================
+
 @router.get("/")
 def get_materials():
     return materials
 
 
+# =========================
+# CREATE / UPLOAD MATERIAL
+# =========================
+
 @router.post("/")
 async def create_material(file: UploadFile = File(...)):
 
-    # Check that a file was actually provided
-    if not file.filename:
-        raise HTTPException(
-            status_code=400,
-            detail="No file provided"
-        )
+    content = await file.read()
 
-    # Get file extension
     extension = file.filename.split(".")[-1].upper()
 
-    # Convert PPTX to PPT for frontend consistency
-    material_type = "PPT" if extension == "PPTX" else extension
+    if extension == "PPTX":
+        material_type = "PPT"
+    elif extension == "DOCX":
+        material_type = "DOC"
+    else:
+        material_type = extension
 
-    # Read file to calculate size
-    file_content = await file.read()
-    file_size_mb = len(file_content) / (1024 * 1024)
-
-    # Generate a new ID
-    new_id = max(
-        [material["id"] for material in materials],
-        default=0
-    ) + 1
-
-    # Create material record
     new_material = {
-        "id": new_id,
+        "id": max(
+            [material["id"] for material in materials],
+            default=0
+        ) + 1,
+
         "title": file.filename,
+
         "type": material_type,
-        "size": f"{file_size_mb:.2f} MB",
+
+        "size": f"{len(content) / (1024 * 1024):.2f} MB",
+
         "time": "Just now",
     }
 
-    # Add material to our temporary storage
     materials.insert(0, new_material)
 
     return new_material
+
+
+# =========================
+# DELETE MATERIAL
+# =========================
+
+@router.delete("/{material_id}")
+def delete_material(material_id: int):
+
+    for material in materials:
+
+        if material["id"] == material_id:
+
+            materials.remove(material)
+
+            return {
+                "message": "Material deleted successfully",
+                "id": material_id,
+            }
+
+    raise HTTPException(
+        status_code=404,
+        detail="Material not found",
+    )
+
+
+# =========================
+# RENAME / UPDATE MATERIAL
+# =========================
+
+@router.patch("/{material_id}")
+def update_material(
+    material_id: int,
+    material_update: MaterialUpdate,
+):
+
+    new_title = material_update.title.strip()
+
+    if not new_title:
+        raise HTTPException(
+            status_code=400,
+            detail="Title cannot be empty",
+        )
+
+    for material in materials:
+
+        if material["id"] == material_id:
+
+            material["title"] = new_title
+
+            return material
+
+    raise HTTPException(
+        status_code=404,
+        detail="Material not found",
+    )

@@ -13,6 +13,8 @@ function UploadModal({ isOpen, onClose, onUpload }) {
 
   const [selectedFile, setSelectedFile] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
 
   if (!isOpen) return null;
 
@@ -29,10 +31,13 @@ function UploadModal({ isOpen, onClose, onUpload }) {
     ];
 
     if (!allowedTypes.includes(file.type)) {
-      alert("Please upload a PDF, PPT, PPTX, DOC, DOCX or TXT file.");
+      setUploadError(
+        "Please upload a PDF, PPT, PPTX, DOC, DOCX or TXT file."
+      );
       return;
     }
 
+    setUploadError("");
     setSelectedFile(file);
   };
 
@@ -52,27 +57,61 @@ function UploadModal({ isOpen, onClose, onUpload }) {
     handleFile(file);
   };
 
-  const handleUpload = () => {
-    if (!selectedFile) return;
+  const handleUpload = async () => {
+    if (!selectedFile || isUploading) return;
 
-    onUpload(selectedFile);
+    try {
+      setIsUploading(true);
+      setUploadError("");
 
-    setSelectedFile(null);
-    onClose();
+      const formData = new FormData();
+
+      formData.append("file", selectedFile);
+
+      const response = await fetch(
+        "http://127.0.0.1:8000/api/materials/",
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to upload material.");
+      }
+
+      const createdMaterial = await response.json();
+
+      // Send the material returned by FastAPI
+      // back to Library.jsx
+      onUpload(createdMaterial);
+
+      setSelectedFile(null);
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+
+      onClose();
+    } catch (error) {
+      console.error("Upload error:", error);
+
+      setUploadError(
+        "Upload failed. Please make sure the backend is running."
+      );
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const getFileIcon = () => {
     if (!selectedFile) return File;
 
-    if (
-      selectedFile.type === "application/pdf"
-    ) {
+    if (selectedFile.type === "application/pdf") {
       return FileText;
     }
 
-    if (
-      selectedFile.type.includes("presentation")
-    ) {
+    if (selectedFile.type.includes("presentation")) {
       return Presentation;
     }
 
@@ -106,7 +145,8 @@ function UploadModal({ isOpen, onClose, onUpload }) {
 
           <button
             onClick={onClose}
-            className="rounded-lg p-2 text-gray-400 transition hover:bg-[#EEEEEE] hover:text-[#1F6F5F]"
+            disabled={isUploading}
+            className="rounded-lg p-2 text-gray-400 transition hover:bg-[#EEEEEE] hover:text-[#1F6F5F] disabled:opacity-40"
           >
             <X size={20} />
           </button>
@@ -187,22 +227,30 @@ function UploadModal({ isOpen, onClose, onUpload }) {
           </div>
         )}
 
+        {/* Error */}
+        {uploadError && (
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+            {uploadError}
+          </div>
+        )}
+
         {/* Footer */}
         <div className="mt-6 flex justify-end gap-3">
 
           <button
             onClick={onClose}
-            className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition hover:bg-[#EEEEEE]"
+            disabled={isUploading}
+            className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition hover:bg-[#EEEEEE] disabled:cursor-not-allowed disabled:opacity-40"
           >
             Cancel
           </button>
 
           <button
             onClick={handleUpload}
-            disabled={!selectedFile}
+            disabled={!selectedFile || isUploading}
             className="rounded-xl bg-[#2FA084] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Upload Material
+            {isUploading ? "Uploading..." : "Upload Material"}
           </button>
 
         </div>
