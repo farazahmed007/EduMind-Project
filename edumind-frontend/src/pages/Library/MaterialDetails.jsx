@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import ReactMarkdown from "react-markdown";
 
 import {
   ArrowLeft,
@@ -181,29 +182,21 @@ function MaterialDetails() {
     setTutorError("");
 
     // --------------------------------------------------
-    // IMPORTANT:
-    //
-    // Save the existing conversation BEFORE adding the
+    // Save previous conversation BEFORE adding the
     // current question.
     //
-    // The backend receives:
-    //
-    // conversation_history = previous messages
-    // question             = current question
-    //
-    // This allows the backend to resolve follow-ups like:
+    // The backend needs previous messages to understand
+    // follow-up questions such as:
     //
     // "Why is it useful?"
-    //
-    // using the previous message:
-    //
-    // "Explain propositional logic."
+    // "Explain this again."
+    // "Give another example."
     // --------------------------------------------------
 
     const conversationHistory = tutorMessages.slice(-10);
 
     // --------------------------------------------------
-    // Add user's question immediately to the UI
+    // Optimistically add student's question
     // --------------------------------------------------
 
     setTutorMessages((previousMessages) => [
@@ -229,12 +222,7 @@ function MaterialDetails() {
 
           body: JSON.stringify({
             question: question,
-
-            // --------------------------------------------------
-            // THIS IS THE FIX
-            // --------------------------------------------------
-            conversation_history:
-              conversationHistory,
+            conversation_history: conversationHistory,
           }),
         }
       );
@@ -265,7 +253,7 @@ function MaterialDetails() {
       }
 
       // --------------------------------------------------
-      // Add AI response to conversation
+      // Add AI response
       // --------------------------------------------------
 
       setTutorMessages((previousMessages) => [
@@ -282,9 +270,7 @@ function MaterialDetails() {
       );
 
       // --------------------------------------------------
-      // Remove the user's optimistic message if the
-      // request failed so the UI does not show a question
-      // with no answer.
+      // Remove optimistic user message if request fails
       // --------------------------------------------------
 
       setTutorMessages((previousMessages) => {
@@ -769,12 +755,14 @@ function MaterialDetails() {
               <div className="flex items-center gap-2">
 
                 {tutorMessages.length > 0 && (
+
                   <button
                     onClick={handleClearTutor}
                     className="rounded-lg px-3 py-2 text-xs font-medium text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
                   >
                     Clear Chat
                   </button>
+
                 )}
 
                 <button
@@ -854,79 +842,279 @@ function MaterialDetails() {
               )}
 
               {/* Conversation */}
-              <div className="mx-auto max-w-3xl space-y-5">
+              <div className="mx-auto max-w-3xl space-y-6">
 
                 {tutorMessages.map(
-                  (message, index) => (
+                  (message, index) => {
 
-                    <div
-                      key={index}
-                      className={`flex gap-3 ${
-                        message.role === "user"
-                          ? "justify-end"
-                          : "justify-start"
-                      }`}
-                    >
+                    const isUser =
+                      message.role === "user";
 
-                      {/* AI Avatar */}
-                      {message.role === "assistant" && (
-
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#6FCF97]/20 text-[#1F6F5F]">
-                          <Bot size={18} />
-                        </div>
-
-                      )}
-
-                      {/* Message */}
+                    return (
                       <div
-                        className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-                          message.role === "user"
-                            ? "bg-[#2FA084] text-white"
-                            : "border border-gray-200 bg-white text-gray-700"
+                        key={index}
+                        className={`flex items-start gap-3 ${
+                          isUser
+                            ? "justify-end"
+                            : "justify-start"
                         }`}
                       >
 
-                        <div className="whitespace-pre-wrap text-sm leading-7">
-                          {message.content}
-                        </div>
+                        {/* AI Avatar */}
+                        {!isUser && (
+
+                          <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#6FCF97]/20 text-[#1F6F5F]">
+                            <Bot size={18} />
+                          </div>
+
+                        )}
+
+                        {/* User Message */}
+                        {isUser ? (
+
+                          <div className="flex max-w-[78%] items-end gap-2">
+
+                            <div className="rounded-2xl rounded-br-md bg-[#2FA084] px-4 py-3 text-white shadow-sm">
+
+                              <div className="whitespace-pre-wrap text-sm leading-6">
+                                {message.content}
+                              </div>
+
+                            </div>
+
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gray-200 text-gray-600">
+                              <User size={17} />
+                            </div>
+
+                          </div>
+
+                        ) : (
+
+                          /* AI Message */
+                          <div className="max-w-[86%]">
+
+                            <div className="mb-1 ml-1 flex items-center gap-2">
+
+                              <span className="text-[11px] font-semibold text-[#1F6F5F]">
+                                EduMind
+                              </span>
+
+                            </div>
+
+                            <div className="rounded-2xl rounded-tl-md border border-gray-200 bg-white px-5 py-4 shadow-sm">
+
+                              <ReactMarkdown
+                                components={{
+
+                                  h1: ({
+                                    children,
+                                  }) => (
+                                    <h1 className="mb-3 mt-1 text-xl font-bold text-[#1F6F5F]">
+                                      {children}
+                                    </h1>
+                                  ),
+
+                                  h2: ({
+                                    children,
+                                  }) => (
+                                    <h2 className="mb-3 mt-1 text-lg font-bold text-[#1F6F5F]">
+                                      {children}
+                                    </h2>
+                                  ),
+
+                                  h3: ({
+                                    children,
+                                  }) => (
+                                    <h3 className="mb-2 mt-4 text-base font-bold text-[#1F6F5F] first:mt-0">
+                                      {children}
+                                    </h3>
+                                  ),
+
+                                  p: ({
+                                    children,
+                                  }) => (
+                                    <p className="mb-3 text-sm leading-7 text-gray-700 last:mb-0">
+                                      {children}
+                                    </p>
+                                  ),
+
+                                  strong: ({
+                                    children,
+                                  }) => (
+                                    <strong className="font-semibold text-gray-900">
+                                      {children}
+                                    </strong>
+                                  ),
+
+                                  em: ({
+                                    children,
+                                  }) => (
+                                    <em className="italic text-gray-600">
+                                      {children}
+                                    </em>
+                                  ),
+
+                                  ul: ({
+                                    children,
+                                  }) => (
+                                    <ul className="mb-3 ml-5 list-disc space-y-1.5 text-sm leading-6 text-gray-700">
+                                      {children}
+                                    </ul>
+                                  ),
+
+                                  ol: ({
+                                    children,
+                                  }) => (
+                                    <ol className="mb-3 ml-5 list-decimal space-y-1.5 text-sm leading-6 text-gray-700">
+                                      {children}
+                                    </ol>
+                                  ),
+
+                                  li: ({
+                                    children,
+                                  }) => (
+                                    <li className="pl-1">
+                                      {children}
+                                    </li>
+                                  ),
+
+                                  blockquote: ({
+                                    children,
+                                  }) => (
+                                    <blockquote className="my-3 border-l-4 border-[#6FCF97] bg-[#F8F9F8] px-4 py-3 text-sm italic leading-6 text-gray-600">
+                                      {children}
+                                    </blockquote>
+                                  ),
+
+                                  code: ({
+                                    className,
+                                    children,
+                                  }) => {
+
+                                    const isBlock =
+                                      className &&
+                                      className.includes(
+                                        "language-"
+                                      );
+
+                                    if (isBlock) {
+                                      return (
+                                        <pre className="my-3 overflow-x-auto rounded-xl bg-gray-900 p-4 text-sm leading-6 text-gray-100">
+                                          <code className={className}>
+                                            {children}
+                                          </code>
+                                        </pre>
+                                      );
+                                    }
+
+                                    return (
+                                      <code className="rounded-md bg-gray-100 px-1.5 py-0.5 font-mono text-[13px] text-[#1F6F5F]">
+                                        {children}
+                                      </code>
+                                    );
+                                  },
+
+                                  table: ({
+                                    children,
+                                  }) => (
+                                    <div className="my-4 overflow-x-auto rounded-xl border border-gray-200">
+                                      <table className="min-w-full border-collapse text-left text-sm">
+                                        {children}
+                                      </table>
+                                    </div>
+                                  ),
+
+                                  thead: ({
+                                    children,
+                                  }) => (
+                                    <thead className="bg-[#F8F9F8]">
+                                      {children}
+                                    </thead>
+                                  ),
+
+                                  th: ({
+                                    children,
+                                  }) => (
+                                    <th className="border-b border-gray-200 px-4 py-3 font-semibold text-[#1F6F5F]">
+                                      {children}
+                                    </th>
+                                  ),
+
+                                  td: ({
+                                    children,
+                                  }) => (
+                                    <td className="border-b border-gray-100 px-4 py-3 text-gray-700">
+                                      {children}
+                                    </td>
+                                  ),
+
+                                  hr: () => (
+                                    <hr className="my-4 border-gray-200" />
+                                  ),
+
+                                  a: ({
+                                    children,
+                                    href,
+                                  }) => (
+                                    <a
+                                      href={href}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="font-medium text-[#2FA084] underline decoration-[#6FCF97] underline-offset-2 hover:text-[#1F6F5F]"
+                                    >
+                                      {children}
+                                    </a>
+                                  ),
+
+                                }}
+                              >
+                                {message.content}
+                              </ReactMarkdown>
+
+                            </div>
+
+                          </div>
+
+                        )}
 
                       </div>
-
-                      {/* User Avatar */}
-                      {message.role === "user" && (
-
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-200 text-gray-600">
-                          <User size={17} />
-                        </div>
-
-                      )}
-
-                    </div>
-
-                  )
+                    );
+                  }
                 )}
 
                 {/* AI Loading */}
                 {tutorLoading && (
 
-                  <div className="flex gap-3">
+                  <div className="flex items-start gap-3">
 
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#6FCF97]/20 text-[#1F6F5F]">
+                    <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#6FCF97]/20 text-[#1F6F5F]">
                       <Bot size={18} />
                     </div>
 
-                    <div className="rounded-2xl border border-gray-200 bg-white px-4 py-3">
+                    <div className="max-w-[86%]">
 
-                      <div className="flex items-center gap-2">
+                      <div className="mb-1 ml-1">
 
-                        <Loader2
-                          size={16}
-                          className="animate-spin text-[#2FA084]"
-                        />
-
-                        <span className="text-sm text-gray-500">
-                          EduMind is thinking...
+                        <span className="text-[11px] font-semibold text-[#1F6F5F]">
+                          EduMind
                         </span>
+
+                      </div>
+
+                      <div className="rounded-2xl rounded-tl-md border border-gray-200 bg-white px-4 py-3 shadow-sm">
+
+                        <div className="flex items-center gap-2">
+
+                          <Loader2
+                            size={16}
+                            className="animate-spin text-[#2FA084]"
+                          />
+
+                          <span className="text-sm text-gray-500">
+                            EduMind is thinking...
+                          </span>
+
+                        </div>
 
                       </div>
 
@@ -967,7 +1155,9 @@ function MaterialDetails() {
                 <textarea
                   value={tutorQuestion}
                   onChange={(event) =>
-                    setTutorQuestion(event.target.value)
+                    setTutorQuestion(
+                      event.target.value
+                    )
                   }
                   onKeyDown={handleTutorKeyDown}
                   placeholder="Ask something about this material..."
@@ -1133,9 +1323,165 @@ function MaterialDetails() {
 
                   <div className="rounded-xl bg-[#EEEEEE] p-5">
 
-                    <div className="whitespace-pre-wrap text-sm leading-7 text-gray-700">
+                    <ReactMarkdown
+                      components={{
+
+                        h1: ({
+                          children,
+                        }) => (
+                          <h1 className="mb-3 text-xl font-bold text-[#1F6F5F]">
+                            {children}
+                          </h1>
+                        ),
+
+                        h2: ({
+                          children,
+                        }) => (
+                          <h2 className="mb-3 mt-5 text-lg font-bold text-[#1F6F5F] first:mt-0">
+                            {children}
+                          </h2>
+                        ),
+
+                        h3: ({
+                          children,
+                        }) => (
+                          <h3 className="mb-2 mt-4 text-base font-bold text-[#1F6F5F] first:mt-0">
+                            {children}
+                          </h3>
+                        ),
+
+                        p: ({
+                          children,
+                        }) => (
+                          <p className="mb-3 text-sm leading-7 text-gray-700 last:mb-0">
+                            {children}
+                          </p>
+                        ),
+
+                        strong: ({
+                          children,
+                        }) => (
+                          <strong className="font-semibold text-gray-900">
+                            {children}
+                          </strong>
+                        ),
+
+                        ul: ({
+                          children,
+                        }) => (
+                          <ul className="mb-3 ml-5 list-disc space-y-1.5 text-sm leading-6 text-gray-700">
+                            {children}
+                          </ul>
+                        ),
+
+                        ol: ({
+                          children,
+                        }) => (
+                          <ol className="mb-3 ml-5 list-decimal space-y-1.5 text-sm leading-6 text-gray-700">
+                            {children}
+                          </ol>
+                        ),
+
+                        li: ({
+                          children,
+                        }) => (
+                          <li className="pl-1">
+                            {children}
+                          </li>
+                        ),
+
+                        blockquote: ({
+                          children,
+                        }) => (
+                          <blockquote className="my-3 border-l-4 border-[#6FCF97] bg-white px-4 py-3 text-sm italic leading-6 text-gray-600">
+                            {children}
+                          </blockquote>
+                        ),
+
+                        code: ({
+                          className,
+                          children,
+                        }) => {
+
+                          const isBlock =
+                            className &&
+                            className.includes(
+                              "language-"
+                            );
+
+                          if (isBlock) {
+                            return (
+                              <pre className="my-3 overflow-x-auto rounded-xl bg-gray-900 p-4 text-sm leading-6 text-gray-100">
+                                <code className={className}>
+                                  {children}
+                                </code>
+                              </pre>
+                            );
+                          }
+
+                          return (
+                            <code className="rounded-md bg-white px-1.5 py-0.5 font-mono text-[13px] text-[#1F6F5F]">
+                              {children}
+                            </code>
+                          );
+                        },
+
+                        table: ({
+                          children,
+                        }) => (
+                          <div className="my-4 overflow-x-auto rounded-xl border border-gray-200">
+                            <table className="min-w-full border-collapse text-left text-sm">
+                              {children}
+                            </table>
+                          </div>
+                        ),
+
+                        thead: ({
+                          children,
+                        }) => (
+                          <thead className="bg-white">
+                            {children}
+                          </thead>
+                        ),
+
+                        th: ({
+                          children,
+                        }) => (
+                          <th className="border-b border-gray-200 px-4 py-3 font-semibold text-[#1F6F5F]">
+                            {children}
+                          </th>
+                        ),
+
+                        td: ({
+                          children,
+                        }) => (
+                          <td className="border-b border-gray-100 px-4 py-3 text-gray-700">
+                            {children}
+                          </td>
+                        ),
+
+                        hr: () => (
+                          <hr className="my-4 border-gray-200" />
+                        ),
+
+                        a: ({
+                          children,
+                          href,
+                        }) => (
+                          <a
+                            href={href}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-medium text-[#2FA084] underline decoration-[#6FCF97] underline-offset-2 hover:text-[#1F6F5F]"
+                          >
+                            {children}
+                          </a>
+                        ),
+
+                      }}
+                    >
                       {summary}
-                    </div>
+                    </ReactMarkdown>
 
                   </div>
 
