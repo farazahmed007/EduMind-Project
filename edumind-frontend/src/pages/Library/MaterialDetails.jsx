@@ -158,6 +158,16 @@ function MaterialDetails() {
   };
 
   // --------------------------------------------------
+  // Clear AI Tutor conversation
+  // --------------------------------------------------
+
+  const handleClearTutor = () => {
+    setTutorMessages([]);
+    setTutorQuestion("");
+    setTutorError("");
+  };
+
+  // --------------------------------------------------
   // Ask AI Tutor
   // --------------------------------------------------
 
@@ -170,7 +180,32 @@ function MaterialDetails() {
 
     setTutorError("");
 
-    // Add user's question immediately to the conversation
+    // --------------------------------------------------
+    // IMPORTANT:
+    //
+    // Save the existing conversation BEFORE adding the
+    // current question.
+    //
+    // The backend receives:
+    //
+    // conversation_history = previous messages
+    // question             = current question
+    //
+    // This allows the backend to resolve follow-ups like:
+    //
+    // "Why is it useful?"
+    //
+    // using the previous message:
+    //
+    // "Explain propositional logic."
+    // --------------------------------------------------
+
+    const conversationHistory = tutorMessages.slice(-10);
+
+    // --------------------------------------------------
+    // Add user's question immediately to the UI
+    // --------------------------------------------------
+
     setTutorMessages((previousMessages) => [
       ...previousMessages,
       {
@@ -187,11 +222,19 @@ function MaterialDetails() {
         `${API_BASE_URL}/api/materials/${id}/tutor`,
         {
           method: "POST",
+
           headers: {
             "Content-Type": "application/json",
           },
+
           body: JSON.stringify({
             question: question,
+
+            // --------------------------------------------------
+            // THIS IS THE FIX
+            // --------------------------------------------------
+            conversation_history:
+              conversationHistory,
           }),
         }
       );
@@ -221,7 +264,10 @@ function MaterialDetails() {
         );
       }
 
+      // --------------------------------------------------
       // Add AI response to conversation
+      // --------------------------------------------------
+
       setTutorMessages((previousMessages) => [
         ...previousMessages,
         {
@@ -234,6 +280,31 @@ function MaterialDetails() {
         "Error asking AI Tutor:",
         error
       );
+
+      // --------------------------------------------------
+      // Remove the user's optimistic message if the
+      // request failed so the UI does not show a question
+      // with no answer.
+      // --------------------------------------------------
+
+      setTutorMessages((previousMessages) => {
+        if (
+          previousMessages.length > 0 &&
+          previousMessages[
+            previousMessages.length - 1
+          ].role === "user" &&
+          previousMessages[
+            previousMessages.length - 1
+          ].content === question
+        ) {
+          return previousMessages.slice(
+            0,
+            previousMessages.length - 1
+          );
+        }
+
+        return previousMessages;
+      });
 
       setTutorError(
         error.message ||
@@ -281,6 +352,7 @@ function MaterialDetails() {
     return (
       <div className="min-h-full bg-[#EEEEEE] px-4 py-8 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
+
           <button
             onClick={() => navigate("/library")}
             className="mb-6 flex items-center gap-2 text-sm font-medium text-gray-500 transition hover:text-[#1F6F5F]"
@@ -290,6 +362,7 @@ function MaterialDetails() {
           </button>
 
           <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+
             <h2 className="text-lg font-semibold text-gray-700">
               Material not found
             </h2>
@@ -298,6 +371,7 @@ function MaterialDetails() {
               This material may have been deleted or is no longer
               available.
             </p>
+
           </div>
         </div>
       </div>
@@ -319,6 +393,7 @@ function MaterialDetails() {
 
   return (
     <div className="min-h-full bg-[#EEEEEE] px-4 py-5 sm:px-6 lg:px-8">
+
       <div className="mx-auto max-w-7xl">
 
         {/* Back */}
@@ -332,12 +407,15 @@ function MaterialDetails() {
 
         {/* Header */}
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+
           <div className="flex items-start gap-4">
+
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-500">
               <FileText size={28} />
             </div>
 
             <div className="min-w-0">
+
               <h1 className="truncate text-2xl font-bold text-[#1F6F5F]">
                 {material.title}
               </h1>
@@ -345,11 +423,14 @@ function MaterialDetails() {
               <p className="mt-1 text-sm text-gray-500">
                 {material.type} • {material.size} • {material.time}
               </p>
+
             </div>
+
           </div>
 
           {/* File actions */}
           <div className="flex flex-wrap gap-2">
+
             <a
               href={fileUrl}
               download={material.title}
@@ -368,7 +449,9 @@ function MaterialDetails() {
               <ExternalLink size={17} />
               Open in New Tab
             </a>
+
           </div>
+
         </div>
 
         {/* Main Layout */}
@@ -379,7 +462,9 @@ function MaterialDetails() {
 
             {/* Viewer Header */}
             <div className="flex items-center justify-between border-b border-gray-100 bg-white px-5 py-4">
+
               <div className="flex items-center gap-2">
+
                 <FileText
                   size={18}
                   className="text-[#2FA084]"
@@ -388,30 +473,41 @@ function MaterialDetails() {
                 <span className="text-sm font-semibold text-gray-700">
                   Document Viewer
                 </span>
+
               </div>
 
               <span className="text-xs text-gray-400">
                 {material.type}
               </span>
+
             </div>
 
             {/* Actual PDF */}
             {isPDF ? (
+
               <div className="h-[calc(100vh-260px)] min-h-[650px] bg-gray-200">
+
                 <iframe
                   src={fileUrl}
                   title={material.title}
                   className="h-full w-full border-0"
                 />
+
               </div>
+
             ) : (
+
               <div className="flex min-h-[650px] items-center justify-center bg-gray-100 p-8">
+
                 <div className="max-w-md text-center">
+
                   <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-200">
+
                     <FileText
                       size={30}
                       className="text-gray-500"
                     />
+
                   </div>
 
                   <h2 className="mt-4 text-lg font-semibold text-gray-700">
@@ -432,9 +528,13 @@ function MaterialDetails() {
                     <Download size={17} />
                     Download File
                   </a>
+
                 </div>
+
               </div>
+
             )}
+
           </div>
 
           {/* RIGHT PANEL */}
@@ -442,6 +542,7 @@ function MaterialDetails() {
 
             {/* Material Information */}
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+
               <h2 className="font-semibold text-[#1F6F5F]">
                 Material Information
               </h2>
@@ -449,6 +550,7 @@ function MaterialDetails() {
               <div className="mt-5 space-y-4">
 
                 <div className="flex items-center justify-between gap-4">
+
                   <span className="text-sm text-gray-500">
                     File Name
                   </span>
@@ -459,9 +561,11 @@ function MaterialDetails() {
                   >
                     {material.title}
                   </span>
+
                 </div>
 
                 <div className="flex items-center justify-between">
+
                   <span className="text-sm text-gray-500">
                     File Type
                   </span>
@@ -469,9 +573,11 @@ function MaterialDetails() {
                   <span className="text-sm font-medium text-gray-700">
                     {material.type}
                   </span>
+
                 </div>
 
                 <div className="flex items-center justify-between">
+
                   <span className="text-sm text-gray-500">
                     File Size
                   </span>
@@ -480,9 +586,11 @@ function MaterialDetails() {
                     <HardDrive size={14} />
                     {material.size}
                   </span>
+
                 </div>
 
                 <div className="flex items-center justify-between">
+
                   <span className="text-sm text-gray-500">
                     Added
                   </span>
@@ -491,9 +599,11 @@ function MaterialDetails() {
                     <Clock3 size={14} />
                     {material.time}
                   </span>
+
                 </div>
 
               </div>
+
             </div>
 
             {/* AI Actions */}
@@ -514,11 +624,13 @@ function MaterialDetails() {
                   onClick={handleOpenTutor}
                   className="group flex w-full items-center gap-3 rounded-xl border border-gray-200 p-3 text-left transition hover:border-[#6FCF97] hover:bg-[#6FCF97]/5"
                 >
+
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#6FCF97]/20 text-[#1F6F5F] transition group-hover:bg-[#2FA084] group-hover:text-white">
                     <Bot size={19} />
                   </div>
 
                   <div>
+
                     <p className="text-sm font-semibold text-gray-700">
                       Ask AI Tutor
                     </p>
@@ -526,7 +638,9 @@ function MaterialDetails() {
                     <p className="text-xs text-gray-400">
                       Ask questions about this material
                     </p>
+
                   </div>
+
                 </button>
 
                 {/* Summary */}
@@ -535,7 +649,9 @@ function MaterialDetails() {
                   disabled={summaryLoading}
                   className="group flex w-full items-center gap-3 rounded-xl border border-gray-200 p-3 text-left transition hover:border-[#6FCF97] hover:bg-[#6FCF97]/5 disabled:cursor-not-allowed disabled:opacity-70"
                 >
+
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#6FCF97]/20 text-[#1F6F5F] transition group-hover:bg-[#2FA084] group-hover:text-white">
+
                     {summaryLoading ? (
                       <Loader2
                         size={19}
@@ -544,9 +660,11 @@ function MaterialDetails() {
                     ) : (
                       <Sparkles size={19} />
                     )}
+
                   </div>
 
                   <div>
+
                     <p className="text-sm font-semibold text-gray-700">
                       {summaryLoading
                         ? "Generating Summary..."
@@ -558,18 +676,22 @@ function MaterialDetails() {
                         ? "EduMind is processing this material"
                         : "Get a concise explanation"}
                     </p>
+
                   </div>
+
                 </button>
 
                 {/* Quiz */}
                 <button
                   className="group flex w-full items-center gap-3 rounded-xl border border-gray-200 p-3 text-left transition hover:border-[#6FCF97] hover:bg-[#6FCF97]/5"
                 >
+
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#6FCF97]/20 text-[#1F6F5F] transition group-hover:bg-[#2FA084] group-hover:text-white">
                     <ClipboardCheck size={19} />
                   </div>
 
                   <div>
+
                     <p className="text-sm font-semibold text-gray-700">
                       Generate Quiz
                     </p>
@@ -577,18 +699,22 @@ function MaterialDetails() {
                     <p className="text-xs text-gray-400">
                       Test your understanding
                     </p>
+
                   </div>
+
                 </button>
 
                 {/* Flashcards */}
                 <button
                   className="group flex w-full items-center gap-3 rounded-xl border border-gray-200 p-3 text-left transition hover:border-[#6FCF97] hover:bg-[#6FCF97]/5"
                 >
+
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#6FCF97]/20 text-[#1F6F5F] transition group-hover:bg-[#2FA084] group-hover:text-white">
                     <Layers3 size={19} />
                   </div>
 
                   <div>
+
                     <p className="text-sm font-semibold text-gray-700">
                       Create Flashcards
                     </p>
@@ -596,12 +722,17 @@ function MaterialDetails() {
                     <p className="text-xs text-gray-400">
                       Generate cards for revision
                     </p>
+
                   </div>
+
                 </button>
 
               </div>
+
             </div>
+
           </div>
+
         </div>
 
         {/* ==================================================
@@ -609,6 +740,7 @@ function MaterialDetails() {
         ================================================== */}
 
         {tutorOpen && (
+
           <div className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
 
             {/* Tutor Header */}
@@ -621,6 +753,7 @@ function MaterialDetails() {
                 </div>
 
                 <div>
+
                   <h2 className="font-semibold text-[#1F6F5F]">
                     AI Tutor
                   </h2>
@@ -628,17 +761,31 @@ function MaterialDetails() {
                   <p className="text-xs text-gray-400">
                     Ask questions about {material.title}
                   </p>
+
                 </div>
 
               </div>
 
-              <button
-                onClick={handleCloseTutor}
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
-                title="Close AI Tutor"
-              >
-                <X size={18} />
-              </button>
+              <div className="flex items-center gap-2">
+
+                {tutorMessages.length > 0 && (
+                  <button
+                    onClick={handleClearTutor}
+                    className="rounded-lg px-3 py-2 text-xs font-medium text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                  >
+                    Clear Chat
+                  </button>
+                )}
+
+                <button
+                  onClick={handleCloseTutor}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                  title="Close AI Tutor"
+                >
+                  <X size={18} />
+                </button>
+
+              </div>
 
             </div>
 
@@ -647,6 +794,7 @@ function MaterialDetails() {
 
               {/* Initial Tutor Message */}
               {tutorMessages.length === 0 && (
+
                 <div className="mx-auto max-w-2xl text-center">
 
                   <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#6FCF97]/20 text-[#1F6F5F]">
@@ -702,53 +850,65 @@ function MaterialDetails() {
                   </div>
 
                 </div>
+
               )}
 
               {/* Conversation */}
               <div className="mx-auto max-w-3xl space-y-5">
 
-                {tutorMessages.map((message, index) => (
-                  <div
-                    key={index}
-                    className={`flex gap-3 ${
-                      message.role === "user"
-                        ? "justify-end"
-                        : "justify-start"
-                    }`}
-                  >
+                {tutorMessages.map(
+                  (message, index) => (
 
-                    {/* AI Avatar */}
-                    {message.role === "assistant" && (
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#6FCF97]/20 text-[#1F6F5F]">
-                        <Bot size={18} />
-                      </div>
-                    )}
-
-                    {/* Message */}
                     <div
-                      className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+                      key={index}
+                      className={`flex gap-3 ${
                         message.role === "user"
-                          ? "bg-[#2FA084] text-white"
-                          : "border border-gray-200 bg-white text-gray-700"
+                          ? "justify-end"
+                          : "justify-start"
                       }`}
                     >
-                      <div className="whitespace-pre-wrap text-sm leading-7">
-                        {message.content}
+
+                      {/* AI Avatar */}
+                      {message.role === "assistant" && (
+
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#6FCF97]/20 text-[#1F6F5F]">
+                          <Bot size={18} />
+                        </div>
+
+                      )}
+
+                      {/* Message */}
+                      <div
+                        className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+                          message.role === "user"
+                            ? "bg-[#2FA084] text-white"
+                            : "border border-gray-200 bg-white text-gray-700"
+                        }`}
+                      >
+
+                        <div className="whitespace-pre-wrap text-sm leading-7">
+                          {message.content}
+                        </div>
+
                       </div>
+
+                      {/* User Avatar */}
+                      {message.role === "user" && (
+
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-200 text-gray-600">
+                          <User size={17} />
+                        </div>
+
+                      )}
+
                     </div>
 
-                    {/* User Avatar */}
-                    {message.role === "user" && (
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-200 text-gray-600">
-                        <User size={17} />
-                      </div>
-                    )}
-
-                  </div>
-                ))}
+                  )
+                )}
 
                 {/* AI Loading */}
                 {tutorLoading && (
+
                   <div className="flex gap-3">
 
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#6FCF97]/20 text-[#1F6F5F]">
@@ -756,7 +916,9 @@ function MaterialDetails() {
                     </div>
 
                     <div className="rounded-2xl border border-gray-200 bg-white px-4 py-3">
+
                       <div className="flex items-center gap-2">
+
                         <Loader2
                           size={16}
                           className="animate-spin text-[#2FA084]"
@@ -765,10 +927,13 @@ function MaterialDetails() {
                         <span className="text-sm text-gray-500">
                           EduMind is thinking...
                         </span>
+
                       </div>
+
                     </div>
 
                   </div>
+
                 )}
 
               </div>
@@ -777,12 +942,21 @@ function MaterialDetails() {
 
             {/* Tutor Error */}
             {tutorError && (
+
               <div className="border-t border-gray-100 bg-red-50 px-6 py-3">
+
                 <div className="flex items-center gap-2 text-sm text-red-600">
+
                   <AlertCircle size={17} />
-                  <span>{tutorError}</span>
+
+                  <span>
+                    {tutorError}
+                  </span>
+
                 </div>
+
               </div>
+
             )}
 
             {/* Input Area */}
@@ -811,14 +985,20 @@ function MaterialDetails() {
                   className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-xl bg-[#2FA084] text-white shadow-sm transition hover:bg-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-50"
                   title="Send question"
                 >
+
                   {tutorLoading ? (
+
                     <Loader2
                       size={19}
                       className="animate-spin"
                     />
+
                   ) : (
+
                     <Send size={19} />
+
                   )}
+
                 </button>
 
               </div>
@@ -830,6 +1010,7 @@ function MaterialDetails() {
             </div>
 
           </div>
+
         )}
 
         {/* ==================================================
@@ -837,6 +1018,7 @@ function MaterialDetails() {
         ================================================== */}
 
         {(summaryLoading || summaryError || summary) && (
+
           <div className="mt-6 rounded-2xl border border-gray-200 bg-white shadow-sm">
 
             {/* Summary Header */}
@@ -847,14 +1029,20 @@ function MaterialDetails() {
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#6FCF97]/20 text-[#1F6F5F]">
 
                   {summaryLoading ? (
+
                     <Loader2
                       size={20}
                       className="animate-spin"
                     />
+
                   ) : summaryError ? (
+
                     <AlertCircle size={20} />
+
                   ) : (
+
                     <CheckCircle2 size={20} />
+
                   )}
 
                 </div>
@@ -874,15 +1062,18 @@ function MaterialDetails() {
               </div>
 
               {summary && !summaryLoading && (
+
                 <span className="rounded-full bg-[#6FCF97]/20 px-3 py-1 text-xs font-semibold text-[#1F6F5F]">
                   Local AI
                 </span>
+
               )}
 
             </div>
 
             {/* Summary Loading */}
             {summaryLoading && (
+
               <div className="flex items-center gap-3 px-6 py-8">
 
                 <Loader2
@@ -904,10 +1095,12 @@ function MaterialDetails() {
                 </div>
 
               </div>
+
             )}
 
             {/* Summary Error */}
             {summaryError && !summaryLoading && (
+
               <div className="flex items-start gap-3 px-6 py-6">
 
                 <AlertCircle
@@ -928,27 +1121,34 @@ function MaterialDetails() {
                 </div>
 
               </div>
+
             )}
 
             {/* Summary Content */}
-            {summary && !summaryLoading && !summaryError && (
-              <div className="px-6 py-6">
+            {summary &&
+              !summaryLoading &&
+              !summaryError && (
 
-                <div className="rounded-xl bg-[#EEEEEE] p-5">
+                <div className="px-6 py-6">
 
-                  <div className="whitespace-pre-wrap text-sm leading-7 text-gray-700">
-                    {summary}
+                  <div className="rounded-xl bg-[#EEEEEE] p-5">
+
+                    <div className="whitespace-pre-wrap text-sm leading-7 text-gray-700">
+                      {summary}
+                    </div>
+
                   </div>
 
                 </div>
 
-              </div>
-            )}
+              )}
 
           </div>
+
         )}
 
       </div>
+
     </div>
   );
 }

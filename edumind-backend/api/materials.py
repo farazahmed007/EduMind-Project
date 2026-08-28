@@ -9,11 +9,20 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from pathlib import Path
 from uuid import uuid4
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from services.ai_service import (
     generate_summary,
     ask_tutor,
+    extract_pdf_text,
+    rewrite_tutor_query,
+)
+
+from services.rag_service import (
+    build_vector_store,
+    vector_store_exists,
+    retrieve_relevant_chunks,
+    delete_vector_store,
 )
 
 from core.database import get_db
@@ -30,8 +39,16 @@ router = APIRouter(
 # Request Models
 # --------------------------------------------------
 
+class TutorMessage(BaseModel):
+    role: str
+    content: str
+
+
 class TutorRequest(BaseModel):
     question: str
+    conversation_history: list[TutorMessage] = Field(
+        default_factory=list
+    )
 
 
 # --------------------------------------------------
@@ -76,12 +93,16 @@ async def create_material(
 ):
 
     if not file.filename:
+
         raise HTTPException(
             status_code=400,
             detail="Filename is required.",
         )
 
+    # --------------------------------------------------
     # Get extension
+    # --------------------------------------------------
+
     extension = (
         Path(file.filename)
         .suffix
@@ -89,30 +110,53 @@ async def create_material(
         .upper()
     )
 
+    # --------------------------------------------------
     # Convert file extensions to frontend types
+    # --------------------------------------------------
+
     if extension == "PPTX":
+
         material_type = "PPT"
 
     elif extension == "DOCX":
+
         material_type = "DOC"
 
     else:
+
         material_type = extension
 
+    # --------------------------------------------------
     # Generate unique filename
+    # --------------------------------------------------
+
     unique_filename = (
-        f"{uuid4().hex}{Path(file.filename).suffix.lower()}"
+        f"{uuid4().hex}"
+        f"{Path(file.filename).suffix.lower()}"
     )
 
-    file_path = UPLOAD_DIR / unique_filename
+    file_path = (
+        UPLOAD_DIR
+        / unique_filename
+    )
 
+    # --------------------------------------------------
     # Save physical file
+    # --------------------------------------------------
+
     content = await file.read()
 
-    with open(file_path, "wb") as buffer:
+    with open(
+        file_path,
+        "wb",
+    ) as buffer:
+
         buffer.write(content)
 
+    # --------------------------------------------------
     # Create database record
+    # --------------------------------------------------
+
     new_material = Material(
         title=file.filename,
         type=material_type,
@@ -121,9 +165,48 @@ async def create_material(
         file_path=f"uploads/{unique_filename}",
     )
 
-    db.add(new_material)
+    db.add(
+        new_material
+    )
+
     db.commit()
-    db.refresh(new_material)
+
+    db.refresh(
+        new_material
+    )
+
+    # --------------------------------------------------
+    # Build RAG index for PDF files
+    # --------------------------------------------------
+
+    if material_type == "PDF":
+
+        try:
+
+            extracted_text = extract_pdf_text(
+                str(file_path)
+            )
+
+            rag_result = build_vector_store(
+                new_material.id,
+                extracted_text,
+            )
+
+            print(
+                "RAG vector store created:",
+                rag_result,
+            )
+
+        except Exception as error:
+
+            print(
+                "RAG indexing error:",
+                error,
+            )
+
+            # The material itself is still kept.
+            # RAG can be created later when the Tutor
+            # is opened.
 
     return new_material
 
@@ -138,30 +221,35 @@ def get_material_file(
     db: Session = Depends(get_db),
 ):
 
-    # Find material in database
     material = (
         db.query(Material)
-        .filter(Material.id == material_id)
+        .filter(
+            Material.id == material_id
+        )
         .first()
     )
 
     if not material:
+
         raise HTTPException(
             status_code=404,
             detail="Material not found.",
         )
 
-    # Make sure file_path exists
     if not material.file_path:
+
         raise HTTPException(
             status_code=404,
             detail="File is not available for this material.",
         )
 
-    # Build physical file path
-    file_path = BASE_DIR / material.file_path
+    file_path = (
+        BASE_DIR
+        / material.file_path
+    )
 
     if not file_path.exists():
+
         raise HTTPException(
             status_code=404,
             detail="Physical file not found.",
@@ -176,7 +264,9 @@ def get_material_file(
     media_types = {
         ".pdf": "application/pdf",
 
-        ".ppt": "application/vnd.ms-powerpoint",
+        ".ppt": (
+            "application/vnd.ms-powerpoint"
+        ),
 
         ".pptx": (
             "application/vnd.openxmlformats-officedocument."
@@ -223,26 +313,58 @@ def delete_material(
 
     material = (
         db.query(Material)
-        .filter(Material.id == material_id)
+        .filter(
+            Material.id == material_id
+        )
         .first()
     )
 
     if not material:
+
         raise HTTPException(
             status_code=404,
             detail="Material not found.",
         )
 
+    # --------------------------------------------------
     # Delete physical file
+    # --------------------------------------------------
+
     if material.file_path:
 
-        file_path = BASE_DIR / material.file_path
+        file_path = (
+            BASE_DIR
+            / material.file_path
+        )
 
         if file_path.exists():
             file_path.unlink()
 
+    # --------------------------------------------------
+    # Delete vector store
+    # --------------------------------------------------
+
+    try:
+
+        delete_vector_store(
+            material_id
+        )
+
+    except Exception as error:
+
+        print(
+            "Vector store deletion error:",
+            error,
+        )
+
+    # --------------------------------------------------
     # Delete database record
-    db.delete(material)
+    # --------------------------------------------------
+
+    db.delete(
+        material
+    )
+
     db.commit()
 
     return {
@@ -264,11 +386,14 @@ def rename_material(
 
     material = (
         db.query(Material)
-        .filter(Material.id == material_id)
+        .filter(
+            Material.id == material_id
+        )
         .first()
     )
 
     if not material:
+
         raise HTTPException(
             status_code=404,
             detail="Material not found.",
@@ -277,7 +402,10 @@ def rename_material(
     material.title = new_title
 
     db.commit()
-    db.refresh(material)
+
+    db.refresh(
+        material
+    )
 
     return material
 
@@ -291,34 +419,46 @@ def generate_material_summary(
     material_id: int,
     db: Session = Depends(get_db),
 ):
+
     material = (
         db.query(Material)
-        .filter(Material.id == material_id)
+        .filter(
+            Material.id == material_id
+        )
         .first()
     )
 
     if not material:
+
         raise HTTPException(
             status_code=404,
             detail="Material not found.",
         )
 
     if not material.file_path:
+
         raise HTTPException(
             status_code=404,
             detail="File is not available for this material.",
         )
 
-    file_path = BASE_DIR / material.file_path
+    file_path = (
+        BASE_DIR
+        / material.file_path
+    )
 
     if not file_path.exists():
+
         raise HTTPException(
             status_code=404,
             detail="Physical file not found.",
         )
 
     try:
-        summary = generate_summary(str(file_path))
+
+        summary = generate_summary(
+            str(file_path)
+        )
 
         return {
             "material_id": material_id,
@@ -327,6 +467,7 @@ def generate_material_summary(
         }
 
     except Exception as error:
+
         print(
             f"Summary generation error: {error}"
         )
@@ -348,50 +489,186 @@ def ask_material_tutor(
     db: Session = Depends(get_db),
 ):
     """
-    Answer a student's question using the selected
-    material as context.
+    Answer a student's question using document-grounded
+    retrieval, conversational query rewriting, and
+    conversation history.
     """
+
+    # --------------------------------------------------
+    # Find Material
+    # --------------------------------------------------
 
     material = (
         db.query(Material)
-        .filter(Material.id == material_id)
+        .filter(
+            Material.id == material_id
+        )
         .first()
     )
 
     if not material:
+
         raise HTTPException(
             status_code=404,
             detail="Material not found.",
         )
 
     if not material.file_path:
+
         raise HTTPException(
             status_code=404,
             detail="File is not available for this material.",
         )
 
-    # Validate question
+    # --------------------------------------------------
+    # Validate Question
+    # --------------------------------------------------
+
     question = request.question.strip()
 
     if not question:
+
         raise HTTPException(
             status_code=400,
             detail="Question cannot be empty.",
         )
 
-    # Build physical file path
-    file_path = BASE_DIR / material.file_path
+    # --------------------------------------------------
+    # Build Physical File Path
+    # --------------------------------------------------
+
+    file_path = (
+        BASE_DIR
+        / material.file_path
+    )
 
     if not file_path.exists():
+
         raise HTTPException(
             status_code=404,
             detail="Physical file not found.",
         )
 
+    # --------------------------------------------------
+    # Currently RAG supports PDFs
+    # --------------------------------------------------
+
+    if material.type != "PDF":
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Document-grounded AI Tutor is currently "
+                "available for PDF materials."
+            ),
+        )
+
     try:
-        answer = ask_tutor(
-            str(file_path),
+
+        # --------------------------------------------------
+        # Convert conversation history
+        # --------------------------------------------------
+
+        conversation_history = [
+            message.model_dump()
+            for message in request.conversation_history
+        ]
+
+        # --------------------------------------------------
+        # Rewrite Question For Retrieval
+        # --------------------------------------------------
+        #
+        # IMPORTANT:
+        #
+        # The rewritten question is ONLY used for
+        # vector retrieval.
+        #
+        # The original student question is still passed
+        # to ask_tutor() so the tutor answers naturally.
+        #
+        # Example:
+        #
+        # Student:
+        # "Why is it useful?"
+        #
+        # Search query:
+        # "Why is propositional logic useful?"
+        #
+        # --------------------------------------------------
+
+        search_query = rewrite_tutor_query(
+            question=question,
+            conversation_history=conversation_history,
+        )
+
+        print(
+            "Original tutor question:",
             question,
+        )
+
+        print(
+            "Rewritten retrieval query:",
+            search_query,
+        )
+
+        # --------------------------------------------------
+        # Create vector store if it does not exist
+        # --------------------------------------------------
+
+        if not vector_store_exists(
+            material_id
+        ):
+
+            print(
+                f"Creating RAG index for material "
+                f"{material_id}..."
+            )
+
+            extracted_text = extract_pdf_text(
+                str(file_path)
+            )
+
+            build_vector_store(
+                material_id,
+                extracted_text,
+            )
+
+            print(
+                f"RAG index created for material "
+                f"{material_id}."
+            )
+
+        # --------------------------------------------------
+        # Retrieve relevant document chunks
+        # --------------------------------------------------
+        #
+        # IMPORTANT:
+        #
+        # We retrieve using search_query, NOT the
+        # original vague follow-up question.
+        #
+        # --------------------------------------------------
+
+        retrieved_chunks = retrieve_relevant_chunks(
+            material_id=material_id,
+            question=search_query,
+            top_k=5,
+        )
+
+        print(
+            f"Retrieved {len(retrieved_chunks)} "
+            f"relevant chunks for material "
+            f"{material_id}."
+        )
+
+        # --------------------------------------------------
+        # Generate grounded answer
+        # --------------------------------------------------
+
+        answer = ask_tutor(
+            question=question,
+            retrieved_chunks=retrieved_chunks,
+            conversation_history=conversation_history,
         )
 
         return {
@@ -399,14 +676,27 @@ def ask_material_tutor(
             "title": material.title,
             "question": question,
             "answer": answer,
+            "sources": [
+                {
+                    "chunk_index": item["chunk_index"],
+                    "score": item["score"],
+                }
+                for item in retrieved_chunks
+            ],
         }
 
+    except HTTPException:
+        raise
+
     except Exception as error:
+
         print(
             f"AI Tutor generation error: {error}"
         )
 
         raise HTTPException(
             status_code=500,
-            detail="Failed to generate AI Tutor response.",
+            detail=(
+                "Failed to generate AI Tutor response."
+            ),
         )
