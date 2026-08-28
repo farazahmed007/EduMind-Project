@@ -1,8 +1,20 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    UploadFile,
+    File,
+    Depends,
+)
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from pathlib import Path
 from uuid import uuid4
+from pydantic import BaseModel
+
+from services.ai_service import (
+    generate_summary,
+    ask_tutor,
+)
 
 from core.database import get_db
 from models.material import Material
@@ -12,6 +24,14 @@ router = APIRouter(
     prefix="/api/materials",
     tags=["Materials"],
 )
+
+
+# --------------------------------------------------
+# Request Models
+# --------------------------------------------------
+
+class TutorRequest(BaseModel):
+    question: str
 
 
 # --------------------------------------------------
@@ -181,11 +201,6 @@ def get_material_file(
     # --------------------------------------------------
     # Return file INLINE
     # --------------------------------------------------
-    #
-    # For PDFs this allows the browser to display
-    # the document instead of forcing a download.
-    #
-    # --------------------------------------------------
 
     return FileResponse(
         path=file_path,
@@ -265,3 +280,133 @@ def rename_material(
     db.refresh(material)
 
     return material
+
+
+# --------------------------------------------------
+# POST - GENERATE AI SUMMARY
+# --------------------------------------------------
+
+@router.post("/{material_id}/summary")
+def generate_material_summary(
+    material_id: int,
+    db: Session = Depends(get_db),
+):
+    material = (
+        db.query(Material)
+        .filter(Material.id == material_id)
+        .first()
+    )
+
+    if not material:
+        raise HTTPException(
+            status_code=404,
+            detail="Material not found.",
+        )
+
+    if not material.file_path:
+        raise HTTPException(
+            status_code=404,
+            detail="File is not available for this material.",
+        )
+
+    file_path = BASE_DIR / material.file_path
+
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Physical file not found.",
+        )
+
+    try:
+        summary = generate_summary(str(file_path))
+
+        return {
+            "material_id": material_id,
+            "title": material.title,
+            "summary": summary,
+        }
+
+    except Exception as error:
+        print(
+            f"Summary generation error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate summary.",
+        )
+
+
+# --------------------------------------------------
+# POST - ASK AI TUTOR
+# --------------------------------------------------
+
+@router.post("/{material_id}/tutor")
+def ask_material_tutor(
+    material_id: int,
+    request: TutorRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Answer a student's question using the selected
+    material as context.
+    """
+
+    material = (
+        db.query(Material)
+        .filter(Material.id == material_id)
+        .first()
+    )
+
+    if not material:
+        raise HTTPException(
+            status_code=404,
+            detail="Material not found.",
+        )
+
+    if not material.file_path:
+        raise HTTPException(
+            status_code=404,
+            detail="File is not available for this material.",
+        )
+
+    # Validate question
+    question = request.question.strip()
+
+    if not question:
+        raise HTTPException(
+            status_code=400,
+            detail="Question cannot be empty.",
+        )
+
+    # Build physical file path
+    file_path = BASE_DIR / material.file_path
+
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Physical file not found.",
+        )
+
+    try:
+        answer = ask_tutor(
+            str(file_path),
+            question,
+        )
+
+        return {
+            "material_id": material_id,
+            "title": material.title,
+            "question": question,
+            "answer": answer,
+        }
+
+    except Exception as error:
+        print(
+            f"AI Tutor generation error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate AI Tutor response.",
+        )
