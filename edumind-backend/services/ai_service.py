@@ -3,23 +3,26 @@ import re
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
+from difflib import SequenceMatcher
 
 import pymupdf
 
 
-# --------------------------------------------------
-# Configuration
-# --------------------------------------------------
+# ==================================================
+# CONFIGURATION
+# ==================================================
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "llama3.2:3b"
 
 
-# --------------------------------------------------
+# ==================================================
 # PDF TEXT EXTRACTION
-# --------------------------------------------------
+# ==================================================
 
-def extract_pdf_text(file_path: str) -> str:
+def extract_pdf_text(
+    file_path: str,
+) -> str:
     """
     Extract all readable text from a PDF file.
     """
@@ -36,13 +39,16 @@ def extract_pdf_text(file_path: str) -> str:
     document = pymupdf.open(path)
 
     try:
+
         for page in document:
+
             page_text = page.get_text()
 
             if page_text:
                 text_parts.append(page_text)
 
     finally:
+
         document.close()
 
     text = "\n".join(
@@ -50,6 +56,7 @@ def extract_pdf_text(file_path: str) -> str:
     ).strip()
 
     if not text:
+
         raise ValueError(
             "No readable text could be extracted from this PDF."
         )
@@ -57,13 +64,19 @@ def extract_pdf_text(file_path: str) -> str:
     return text
 
 
-# --------------------------------------------------
+# ==================================================
 # OLLAMA AI REQUEST
-# --------------------------------------------------
+# ==================================================
 
-def ask_ai(prompt: str) -> str:
+def ask_ai(
+    prompt: str,
+    json_mode: bool = False,
+) -> str:
     """
     Send a prompt to the local Ollama LLM.
+
+    json_mode=True asks Ollama to return JSON using
+    its native JSON output mode.
     """
 
     payload = {
@@ -72,8 +85,12 @@ def ask_ai(prompt: str) -> str:
         "stream": False,
     }
 
+    if json_mode:
+        payload["format"] = "json"
+
     data = json.dumps(
-        payload
+        payload,
+        ensure_ascii=False,
     ).encode("utf-8")
 
     request = Request(
@@ -86,6 +103,7 @@ def ask_ai(prompt: str) -> str:
     )
 
     try:
+
         with urlopen(
             request,
             timeout=180,
@@ -120,6 +138,7 @@ def ask_ai(prompt: str) -> str:
         ) from error
 
     try:
+
         result = json.loads(
             response_data
         )
@@ -127,7 +146,7 @@ def ask_ai(prompt: str) -> str:
     except json.JSONDecodeError as error:
 
         raise RuntimeError(
-            "Ollama returned an invalid response."
+            "Ollama returned an invalid API response."
         ) from error
 
     answer = result.get(
@@ -135,6 +154,7 @@ def ask_ai(prompt: str) -> str:
     )
 
     if not answer:
+
         raise RuntimeError(
             "Ollama returned an empty AI response."
         )
@@ -142,16 +162,15 @@ def ask_ai(prompt: str) -> str:
     return answer.strip()
 
 
-# --------------------------------------------------
-# GENERATE SUMMARY
-# --------------------------------------------------
+# ==================================================
+# SUMMARY
+# ==================================================
 
 def generate_summary(
     file_path: str,
 ) -> str:
     """
-    Extract PDF text and generate a real AI summary
-    using the local Ollama model.
+    Generate an AI summary from a PDF.
     """
 
     text = extract_pdf_text(
@@ -161,7 +180,10 @@ def generate_summary(
     max_characters = 30000
 
     if len(text) > max_characters:
-        text = text[:max_characters]
+
+        text = text[
+            :max_characters
+        ]
 
     prompt = f"""
 You are EduMind, an AI study assistant designed for MCA students.
@@ -220,19 +242,20 @@ Use this structure where appropriate:
     )
 
 
-# --------------------------------------------------
-# FORMAT CONVERSATION HISTORY
-# --------------------------------------------------
+# ==================================================
+# CONVERSATION HISTORY
+# ==================================================
 
 def format_conversation_history(
     conversation_history: list[dict] | None,
 ) -> str:
     """
-    Convert frontend conversation history into a
-    readable format for the LLM.
+    Convert frontend conversation history into
+    readable text for the LLM.
     """
 
     if not conversation_history:
+
         return "No previous conversation."
 
     history_lines = []
@@ -267,6 +290,7 @@ def format_conversation_history(
             )
 
     if not history_lines:
+
         return "No previous conversation."
 
     return "\n".join(
@@ -274,40 +298,34 @@ def format_conversation_history(
     )
 
 
-# --------------------------------------------------
+# ==================================================
 # NORMALIZE TEXT
-# --------------------------------------------------
+# ==================================================
 
 def normalize_text(
     text: str,
 ) -> str:
     """
-    Normalize whitespace for reliable pattern matching.
+    Normalize whitespace.
     """
 
     return re.sub(
         r"\s+",
         " ",
-        text.strip(),
+        str(text).strip(),
     )
 
 
-# --------------------------------------------------
-# EXTRACT EXPLICIT TOPIC FROM STUDENT MESSAGE
-# --------------------------------------------------
+# ==================================================
+# EXPLICIT STUDENT TOPIC
+# ==================================================
 
 def extract_explicit_topic(
     message: str,
 ) -> str | None:
     """
-    Extract an explicitly named learning topic from a
-    student's message.
-
-    Important:
-    This function only looks at explicit topic statements.
-
-    It intentionally does NOT treat arbitrary follow-up
-    questions such as "Why is it useful?" as new topics.
+    Extract an explicitly named learning topic from
+    the student's message.
     """
 
     message = normalize_text(
@@ -315,6 +333,7 @@ def extract_explicit_topic(
     )
 
     if not message:
+
         return None
 
     patterns = [
@@ -345,7 +364,6 @@ def extract_explicit_topic(
             1
         ).strip()
 
-        # Remove common explanation modifiers.
         candidate = re.split(
             r"\b(?:"
             r"in simple language|"
@@ -370,56 +388,36 @@ def extract_explicit_topic(
         ).strip()
 
         if candidate:
+
             return candidate
 
     return None
 
 
-# --------------------------------------------------
-# FIND ACTIVE STUDENT TOPIC
-# --------------------------------------------------
+# ==================================================
+# ACTIVE STUDENT TOPIC
+# ==================================================
 
 def find_active_student_topic(
     conversation_history: list[dict] | None,
 ) -> str | None:
     """
-    Find the active learning topic from the student's
-    explicitly named topics.
-
-    IMPORTANT:
-
-    We NEVER use an arbitrary previous student question
-    as the topic.
-
-    For example:
-
-        Student: Explain propositional logic.
-        Student: Why is it useful?
-
-    The active topic remains:
-
-        propositional logic
-
-    This prevents follow-up questions from becoming
-    accidental topics.
+    Find the most recent explicit topic from the
+    student's own messages.
     """
 
     if not conversation_history:
-        return None
 
-    # --------------------------------------------------
-    # Search the student's messages only.
-    #
-    # We scan from newest to oldest so that if the
-    # student explicitly starts a NEW topic later,
-    # that newest explicit topic becomes active.
-    # --------------------------------------------------
+        return None
 
     for message in reversed(
         conversation_history
     ):
 
-        if message.get("role") != "user":
+        if message.get(
+            "role"
+        ) != "user":
+
             continue
 
         content = str(
@@ -430,6 +428,7 @@ def find_active_student_topic(
         ).strip()
 
         if not content:
+
             continue
 
         topic = extract_explicit_topic(
@@ -437,88 +436,75 @@ def find_active_student_topic(
         )
 
         if topic:
-            return topic
 
-    # --------------------------------------------------
-    # IMPORTANT:
-    #
-    # No arbitrary fallback here.
-    #
-    # We would rather return None than incorrectly
-    # identify "Why is it useful?" as a topic.
-    # --------------------------------------------------
+            return topic
 
     return None
 
 
-# --------------------------------------------------
-# DETECT FOLLOW-UP TYPE
-# --------------------------------------------------
+# ==================================================
+# FOLLOW-UP DETECTION
+# ==================================================
 
 def detect_follow_up_type(
     question: str,
 ) -> str:
     """
-    Detect common follow-up patterns.
+    Detect common conversational follow-ups.
     """
 
     normalized = normalize_text(
         question
     ).lower()
 
-    # --------------------------------------------------
-    # WHY
-    # --------------------------------------------------
-
     if re.fullmatch(
         r"why\s*\??",
         normalized,
     ):
+
         return "why"
 
     if re.fullmatch(
         r"why\s+is\s+(it|this|that)\s+useful\s*\??",
         normalized,
     ):
+
         return "why"
 
     if re.fullmatch(
         r"why\s+is\s+(it|this|that)\s+important\s*\??",
         normalized,
     ):
+
         return "why"
 
     if re.fullmatch(
         r"why\s+do\s+(we|you)\s+use\s+(it|this|that)\s*\??",
         normalized,
     ):
-        return "why"
 
-    # --------------------------------------------------
-    # HOW
-    # --------------------------------------------------
+        return "why"
 
     if re.fullmatch(
         r"how\s*\??",
         normalized,
     ):
+
         return "how"
 
     if re.fullmatch(
         r"how\s+does\s+(it|this|that)\s+work\s*\??",
         normalized,
     ):
+
         return "how"
 
     if re.fullmatch(
         r"how\s+is\s+(it|this|that)\s+used\s*\??",
         normalized,
     ):
-        return "how"
 
-    # --------------------------------------------------
-    # I DON'T UNDERSTAND
-    # --------------------------------------------------
+        return "how"
 
     if (
         "i don't understand" in normalized
@@ -527,21 +513,15 @@ def detect_follow_up_type(
         or "i'm confused" in normalized
         or "im confused" in normalized
     ):
+
         return "simple_explanation"
 
-    # --------------------------------------------------
-    # EXPLAIN THIS / THAT / IT
-    # --------------------------------------------------
-
     if re.fullmatch(
-        r"(please\s+)?explain\s+(this|that|it)\s*\??",
+        r"(please\s+)?explain\s+(this|that|it)\s*\.?",
         normalized,
     ):
-        return "explain_reference"
 
-    # --------------------------------------------------
-    # ANOTHER EXAMPLE
-    # --------------------------------------------------
+        return "explain_reference"
 
     if (
         "another example" in normalized
@@ -549,27 +529,22 @@ def detect_follow_up_type(
         or "give another example" in normalized
         or "one more example" in normalized
     ):
-        return "another_example"
 
-    # --------------------------------------------------
-    # FIRST / SECOND ONE
-    # --------------------------------------------------
+        return "another_example"
 
     if re.search(
         r"\bsecond\s+(one|type|point|item|concept)\b",
         normalized,
     ):
+
         return "second_item"
 
     if re.search(
         r"\bfirst\s+(one|type|point|item|concept)\b",
         normalized,
     ):
-        return "first_item"
 
-    # --------------------------------------------------
-    # MORE DETAIL
-    # --------------------------------------------------
+        return "first_item"
 
     if (
         "tell me more" in normalized
@@ -577,41 +552,32 @@ def detect_follow_up_type(
         or "explain more" in normalized
         or "more details" in normalized
     ):
-        return "more_detail"
 
-    # --------------------------------------------------
-    # NORMAL QUESTION
-    # --------------------------------------------------
+        return "more_detail"
 
     return "normal"
 
 
-# --------------------------------------------------
-# BUILD DETERMINISTIC FOLLOW-UP QUERY
-# --------------------------------------------------
+# ==================================================
+# DETERMINISTIC FOLLOW-UP QUERY
+# ==================================================
 
 def build_deterministic_follow_up_query(
     question: str,
     active_topic: str | None,
 ) -> str | None:
     """
-    Build deterministic retrieval queries for common
+    Build safe retrieval queries for common vague
     conversational follow-ups.
-
-    This prevents the small local model from having to
-    guess what vague words such as "it" or "this" refer to.
     """
 
     if not active_topic:
+
         return None
 
     follow_up_type = detect_follow_up_type(
         question
     )
-
-    # --------------------------------------------------
-    # WHY
-    # --------------------------------------------------
 
     if follow_up_type == "why":
 
@@ -620,20 +586,12 @@ def build_deterministic_follow_up_query(
             f"and applications of {active_topic}"
         )
 
-    # --------------------------------------------------
-    # HOW
-    # --------------------------------------------------
-
     if follow_up_type == "how":
 
         return (
             f"how {active_topic} works "
             f"and how it is used"
         )
-
-    # --------------------------------------------------
-    # SIMPLE EXPLANATION
-    # --------------------------------------------------
 
     if follow_up_type == "simple_explanation":
 
@@ -642,20 +600,12 @@ def build_deterministic_follow_up_query(
             f"language with a real-world example"
         )
 
-    # --------------------------------------------------
-    # EXPLAIN THIS / THAT / IT
-    # --------------------------------------------------
-
     if follow_up_type == "explain_reference":
 
         return (
             f"explanation of {active_topic} "
             f"in simple and clear language"
         )
-
-    # --------------------------------------------------
-    # ANOTHER EXAMPLE
-    # --------------------------------------------------
 
     if follow_up_type == "another_example":
 
@@ -664,9 +614,14 @@ def build_deterministic_follow_up_query(
             f"including practical or real-world examples"
         )
 
-    # --------------------------------------------------
-    # MORE DETAIL
-    # --------------------------------------------------
+    if follow_up_type in {
+        "first_item",
+        "second_item",
+    }:
+
+        return (
+            f"{active_topic} {question}"
+        )
 
     if follow_up_type == "more_detail":
 
@@ -674,65 +629,32 @@ def build_deterministic_follow_up_query(
             f"detailed explanation of {active_topic}"
         )
 
-    # --------------------------------------------------
-    # FIRST / SECOND ITEM
-    #
-    # We intentionally do not guess which item the user
-    # means. This is handled by the LLM using conversation
-    # context, but the active topic is still supplied.
-    # --------------------------------------------------
-
-    if follow_up_type in {
-        "first_item",
-        "second_item",
-    }:
-
-        return (
-            f"{active_topic} "
-            f"{question}"
-        )
-
     return None
 
 
-# --------------------------------------------------
-# REWRITE TUTOR SEARCH QUERY
-# --------------------------------------------------
+# ==================================================
+# REWRITE TUTOR QUERY
+# ==================================================
 
 def rewrite_tutor_query(
     question: str,
     conversation_history: list[dict] | None = None,
 ) -> str:
     """
-    Convert the student's current question into a
-    standalone retrieval query.
-
-    Priority:
-
-    1. Preserve explicitly established student topic.
-    2. Handle common vague follow-ups deterministically.
-    3. Use LLM rewriting only for complex questions.
-    4. Never let tutor-generated content redefine the topic.
+    Rewrite a student's question for retrieval.
     """
 
     question = question.strip()
 
     if not question:
+
         raise ValueError(
             "Question cannot be empty."
         )
 
-    # --------------------------------------------------
-    # No history
-    # --------------------------------------------------
-
     if not conversation_history:
 
         return question
-
-    # --------------------------------------------------
-    # Find the active student topic
-    # --------------------------------------------------
 
     active_topic = find_active_student_topic(
         conversation_history
@@ -742,10 +664,6 @@ def rewrite_tutor_query(
         "Detected active student topic:",
         active_topic,
     )
-
-    # --------------------------------------------------
-    # Deterministic follow-up handling
-    # --------------------------------------------------
 
     deterministic_query = (
         build_deterministic_follow_up_query(
@@ -763,186 +681,68 @@ def rewrite_tutor_query(
 
         return deterministic_query
 
-    # --------------------------------------------------
-    # If the current question already contains the
-    # active topic, use it directly.
-    # --------------------------------------------------
-
-    if active_topic:
-
-        active_topic_words = {
-            word.lower()
-            for word in re.findall(
-                r"\b[a-zA-Z0-9]+\b",
-                active_topic,
-            )
-            if len(word) > 2
-        }
-
-        question_words = {
-            word.lower()
-            for word in re.findall(
-                r"\b[a-zA-Z0-9]+\b",
-                question,
-            )
-        }
-
-        if (
-            active_topic_words
-            and active_topic_words.intersection(
-                question_words
-            )
-        ):
-
-            print(
-                "Current question already contains "
-                "the active topic."
-            )
-
-            return question
-
-    # --------------------------------------------------
-    # If no active topic exists, use the question itself.
-    # --------------------------------------------------
-
     if not active_topic:
 
         return question
 
-    # --------------------------------------------------
-    # Complex follow-up
-    #
-    # Only now do we ask the LLM to rewrite the query.
-    # --------------------------------------------------
+    active_topic_words = {
+        word.lower()
+        for word in re.findall(
+            r"\b[a-zA-Z0-9]+\b",
+            active_topic,
+        )
+        if len(word) > 2
+    }
+
+    question_words = {
+        word.lower()
+        for word in re.findall(
+            r"\b[a-zA-Z0-9]+\b",
+            question,
+        )
+    }
+
+    if (
+        active_topic_words
+        and active_topic_words.intersection(
+            question_words
+        )
+    ):
+
+        return question
 
     history = format_conversation_history(
         conversation_history
     )
 
     prompt = f"""
-You are a search-query rewriting component for EduMind.
+You are EduMind's search-query rewriting component.
 
-Your ONLY task is to create ONE standalone search query
-for searching a study document.
+Rewrite the student's CURRENT QUESTION into one
+standalone query for searching a study document.
 
-You are NOT answering the student.
+Do NOT answer the student.
 
---------------------------------------------------
-ACTIVE STUDENT TOPIC
---------------------------------------------------
+ACTIVE STUDENT TOPIC:
 
 {active_topic}
 
-This is the most important piece of information.
-
-The active topic was identified from the student's own
-messages.
-
-The active topic must remain the topic of the search query
-unless the CURRENT STUDENT QUESTION explicitly introduces
-a different topic.
-
-Do NOT change the active topic because the tutor previously
-mentioned another concept, example, subtopic, or definition.
-
---------------------------------------------------
-CURRENT STUDENT QUESTION
---------------------------------------------------
+CURRENT QUESTION:
 
 {question}
 
---------------------------------------------------
-CONVERSATION
---------------------------------------------------
+CONVERSATION:
 
 {history}
 
---------------------------------------------------
-STRICT RULES
---------------------------------------------------
+RULES:
 
-1. Preserve the ACTIVE STUDENT TOPIC.
-
-2. Resolve references such as:
-   - this
-   - that
-   - it
-   - they
-   - them
-   - the first one
-   - the second one
-
-   using the conversation.
-
-3. Tutor-generated examples do NOT change the topic.
-
-4. Tutor-generated subtopics do NOT automatically change
-   the topic.
-
-5. If the student asks a follow-up question, connect it
-   to the ACTIVE STUDENT TOPIC.
-
-6. Do not invent a new academic topic.
-
-7. Do not answer the student.
-
-8. Return ONLY one search query.
-
-9. Keep it concise.
-
-10. Do not mention EduMind.
-
-11. Do not mention Ollama.
-
-12. Do not mention FAISS.
-
-13. Do not mention embeddings.
-
-14. Do not explain your reasoning.
-
---------------------------------------------------
-EXAMPLE
---------------------------------------------------
-
-Active topic:
-propositional logic
-
-Student:
-Why is it useful?
-
-Query:
-importance and applications of propositional logic
-
-Active topic:
-propositional logic
-
-Student:
-I don't understand this.
-
-Query:
-propositional logic explained in simple language
-
-Active topic:
-propositional logic
-
-Student:
-Give me another example.
-
-Query:
-another example of propositional logic
-
-Active topic:
-virtualization
-
-Student:
-How does it work?
-
-Query:
-how virtualization works
-
---------------------------------------------------
-RETURN ONLY THE SEARCH QUERY
---------------------------------------------------
+1. Preserve the active student topic.
+2. Resolve vague references.
+3. Tutor examples do not change the topic.
+4. Do not invent a topic.
+5. Preserve the student's intent.
+6. Return only the rewritten search query.
 """
 
     rewritten_query = ask_ai(
@@ -950,111 +750,23 @@ RETURN ONLY THE SEARCH QUERY
     ).strip()
 
     if not rewritten_query:
+
         return question
 
-    # --------------------------------------------------
-    # Clean accidental formatting
-    # --------------------------------------------------
-
-    rewritten_query = (
-        rewritten_query
-        .strip("\"'")
-        .strip()
-    )
-
-    prefixes = [
-        "Search query:",
-        "Standalone search query:",
-        "Query:",
-        "Rewritten query:",
-        "Output:",
-    ]
-
-    for prefix in prefixes:
-
-        if rewritten_query.lower().startswith(
-            prefix.lower()
-        ):
-
-            rewritten_query = rewritten_query[
-                len(prefix):
-            ].strip()
-
-            break
-
-    # --------------------------------------------------
-    # Safety check for follow-ups
-    #
-    # If the LLM rewrites a follow-up but drops the active
-    # topic entirely, fall back to a deterministic query.
-    # --------------------------------------------------
-
-    follow_up_type = detect_follow_up_type(
-        question
-    )
-
-    if (
-        active_topic
-        and follow_up_type != "normal"
-    ):
-
-        active_topic_words = {
-            word.lower()
-            for word in re.findall(
-                r"\b[a-zA-Z0-9]+\b",
-                active_topic,
-            )
-            if len(word) > 2
-        }
-
-        rewritten_words = {
-            word.lower()
-            for word in re.findall(
-                r"\b[a-zA-Z0-9]+\b",
-                rewritten_query,
-            )
-        }
-
-        topic_present = bool(
-            active_topic_words.intersection(
-                rewritten_words
-            )
-        )
-
-        if not topic_present:
-
-            print(
-                "Rewrite safety check failed. "
-                "Falling back to active topic."
-            )
-
-            safe_query = (
-                build_deterministic_follow_up_query(
-                    question,
-                    active_topic,
-                )
-            )
-
-            if safe_query:
-                return safe_query
-
-            return (
-                f"{active_topic} {question}"
-            )
-
-    return rewritten_query
+    return rewritten_query.strip(
+        "\"'"
+    ).strip()
 
 
-# --------------------------------------------------
-# BUILD RETRIEVED CONTEXT
-# --------------------------------------------------
+# ==================================================
+# RETRIEVED CONTEXT
+# ==================================================
 
 def format_retrieved_context(
     retrieved_chunks: list[dict],
 ) -> str:
     """
-    Convert retrieved document chunks into a
-    clean context block for the Tutor.
+    Format retrieved chunks for the tutor.
     """
 
     if not retrieved_chunks:
@@ -1078,6 +790,7 @@ def format_retrieved_context(
         ).strip()
 
         if not text:
+
             continue
 
         score = result.get(
@@ -1115,9 +828,9 @@ def format_retrieved_context(
     )
 
 
-# --------------------------------------------------
+# ==================================================
 # ASK AI TUTOR
-# --------------------------------------------------
+# ==================================================
 
 def ask_tutor(
     question: str,
@@ -1125,11 +838,8 @@ def ask_tutor(
     conversation_history: list[dict] | None = None,
 ) -> str:
     """
-    Answer a student's question using:
-
-    - Relevant document chunks
-    - Previous conversation
-    - The student's current question
+    Answer a student question using document context
+    and conversation history.
     """
 
     question = question.strip()
@@ -1140,25 +850,13 @@ def ask_tutor(
             "Question cannot be empty."
         )
 
-    # --------------------------------------------------
-    # Retrieved context
-    # --------------------------------------------------
-
     document_context = format_retrieved_context(
         retrieved_chunks
     )
 
-    # --------------------------------------------------
-    # Conversation history
-    # --------------------------------------------------
-
     history = format_conversation_history(
         conversation_history
     )
-
-    # --------------------------------------------------
-    # Determine active topic for the Tutor
-    # --------------------------------------------------
 
     active_topic = find_active_student_topic(
         conversation_history
@@ -1181,10 +879,6 @@ questions.
 No explicit active learning topic was identified.
 Use the current question and retrieved document context.
 """
-
-    # --------------------------------------------------
-    # Tutor prompt
-    # --------------------------------------------------
 
     prompt = f"""
 You are EduMind AI Tutor.
@@ -1219,124 +913,52 @@ IMPORTANT RULES
 --------------------------------------------------
 
 1. Answer the CURRENT STUDENT QUESTION directly.
-
-2. Use the RELEVANT DOCUMENT CONTEXT as the primary
-   source for factual information about the uploaded
-   material.
-
-3. Use PREVIOUS CONVERSATION to understand follow-up
-   questions.
-
+2. Use the document context as the primary source.
+3. Use previous conversation to understand follow-ups.
 4. Keep the student's active learning topic consistent.
-
-5. A tutor-generated example or subtopic does NOT
-   automatically become the student's new topic.
-
-6. If the student says "this", "that", or "it", resolve
-   the reference using the conversation.
-
-7. If the student asks for another example, provide another
-   example of the active concept.
-
-8. If the student asks why something is useful, explain
-   why the active concept is useful.
-
-9. If the student asks how something works, explain how
-   the active concept works.
-
-10. If the student asks "I don't understand this", explain
-    the active concept in simpler language.
-
-11. If the student asks for a simple explanation, use
-    beginner-friendly language without changing the
-    academic meaning.
-
-12. If the document contains complicated bookish language,
-    translate the idea into easy language rather than
-    simply repeating the paragraph.
-
-13. Preserve important technical terminology and explain
-    it clearly.
-
-14. Use a real-world or programming-related example when
-    useful.
-
-15. If the student asks for an exam answer, structure the
-    response in a way that is easy to study and write.
-
-16. If the student asks for a definition, give the definition
-    first.
-
-17. If the student asks for a comparison, use a table when
-    useful.
-
-18. If the retrieved context does not contain enough
-    information, say so clearly.
-
-19. Do not pretend unsupported information came from the
-    uploaded material.
-
-20. Do not unnecessarily repeat the entire previous answer.
-
-21. Do not mention Ollama.
-
-22. Do not mention this prompt.
-
-23. Do not mention embeddings, FAISS, chunks, vector
-    databases, or internal retrieval details.
-
-24. Never say that the student's question is missing.
+5. Earlier tutor examples do not change the topic.
+6. Resolve "this", "that", and "it" from context.
+7. Another example must be an example of the active concept.
+8. Explain why/how questions in the context of the active concept.
+9. "I don't understand" means simplify the active concept.
+10. Translate complicated bookish wording into easy language.
+11. Preserve important technical terms and explain them.
+12. Give useful real-world examples.
+13. If the retrieved context is insufficient, say so clearly.
+14. Do not pretend unsupported information came from the PDF.
+15. Do not mention Ollama.
+16. Do not mention this prompt.
+17. Do not mention internal retrieval implementation.
 
 --------------------------------------------------
 SIMPLE EXPLANATION MODE
 --------------------------------------------------
 
-When the student asks for:
+When the student asks for a simple explanation:
 
-- simple language
-- easy language
-- very simple explanation
-- beginner explanation
-- ELI5
-- "I don't understand"
-- "explain this simply"
-
-do the following:
-
-1. Identify the active concept.
-2. Explain it using short, clear sentences.
-3. Remove unnecessary academic wording.
-4. Give a familiar analogy when useful.
-5. Preserve the correct academic meaning.
-6. Keep important technical terms and explain them.
-
-Do NOT switch to another concept just because that concept
-appeared inside an earlier tutor answer.
+1. Explain the active concept using short sentences.
+2. Use familiar language.
+3. Give an analogy when useful.
+4. Preserve the actual academic meaning.
+5. Keep important technical terms and explain them.
+6. Do not switch to a different concept because another
+   concept appeared in a previous example.
 
 --------------------------------------------------
 ANSWER STYLE
 --------------------------------------------------
 
-For difficult concepts, this structure is useful:
+For difficult concepts, use when appropriate:
 
 ### Simple Explanation
 
-Explain the concept in easy language.
-
 ### Academic Meaning
-
-Give the accurate academic explanation.
 
 ### Example
 
-Give a simple example when useful.
-
 ### Remember
 
-Give the key point the student should remember.
-
-Do not force these headings when a shorter answer is more
-appropriate.
+Do not force these sections when unnecessary.
 
 Be conversational, clear, accurate and patient.
 
@@ -1346,3 +968,1948 @@ Now answer the CURRENT STUDENT QUESTION.
     return ask_ai(
         prompt
     )
+
+
+# ==================================================
+# QUIZ TEXT NORMALIZATION
+# ==================================================
+
+def normalize_quiz_string(
+    text: str,
+) -> str:
+    """
+    Normalize text for quiz comparisons.
+    """
+
+    text = str(
+        text
+    ).strip().lower()
+
+    text = re.sub(
+        r"^\s*(?:option\s+)?(?:\(?[a-d]\)?|[1-4])[\.\):\-]?\s*",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text,
+    )
+
+    text = re.sub(
+        r"[^a-z0-9\s]",
+        "",
+        text,
+    )
+
+    return text.strip()
+
+
+# ==================================================
+# CLEAN OPTION
+# ==================================================
+
+def clean_option_text(
+    option: str,
+) -> str:
+    """
+    Remove accidental option labels.
+    """
+
+    option = str(
+        option
+    ).strip()
+
+    option = re.sub(
+        r"^\s*(?:option\s+)?(?:\(?[a-d]\)?|[1-4])[\.\):\-]?\s*",
+        "",
+        option,
+        flags=re.IGNORECASE,
+    )
+
+    return option.strip()
+
+
+# ==================================================
+# SIMILARITY
+# ==================================================
+
+def are_similar_texts(
+    first: str,
+    second: str,
+    threshold: float = 0.92,
+) -> bool:
+    """
+    Compare two quiz strings.
+    """
+
+    first_normalized = normalize_quiz_string(
+        first
+    )
+
+    second_normalized = normalize_quiz_string(
+        second
+    )
+
+    if not first_normalized or not second_normalized:
+
+        return False
+
+    if first_normalized == second_normalized:
+
+        return True
+
+    return (
+        SequenceMatcher(
+            None,
+            first_normalized,
+            second_normalized,
+        ).ratio()
+        >= threshold
+    )
+
+
+# ==================================================
+# DUPLICATE QUESTION
+# ==================================================
+
+def are_duplicate_questions(
+    first: str,
+    second: str,
+) -> bool:
+    """
+    Check if questions are semantically similar.
+    """
+
+    return are_similar_texts(
+        first,
+        second,
+        threshold=0.85,
+    )
+
+
+# ==================================================
+# MATCH CORRECT ANSWER
+# ==================================================
+
+def match_correct_answer(
+    correct_answer: str,
+    options: list[str],
+) -> str | None:
+    """
+    Resolve the model's correct-answer value.
+
+    Supports:
+
+    - A/B/C/D
+    - 1/2/3/4
+    - Option 1/2/3/4
+    - exact option text
+    """
+
+    answer = str(
+        correct_answer
+    ).strip()
+
+    if not answer:
+
+        return None
+
+    cleaned_answer = clean_option_text(
+        answer
+    )
+
+    # --------------------------------------------------
+    # A / B / C / D
+    # --------------------------------------------------
+
+    letter_match = re.fullmatch(
+        r"\(?([a-d])\)?",
+        cleaned_answer,
+        flags=re.IGNORECASE,
+    )
+
+    if letter_match:
+
+        index = (
+            ord(
+                letter_match.group(1).upper()
+            )
+            - ord("A")
+        )
+
+        if 0 <= index < len(options):
+
+            return options[index]
+
+    # --------------------------------------------------
+    # Option 1 / Option 2 / ...
+    # --------------------------------------------------
+
+    option_match = re.fullmatch(
+        r"option\s+([1-4])",
+        cleaned_answer,
+        flags=re.IGNORECASE,
+    )
+
+    if option_match:
+
+        index = int(
+            option_match.group(1)
+        ) - 1
+
+        if 0 <= index < len(options):
+
+            return options[index]
+
+    # --------------------------------------------------
+    # 1 / 2 / 3 / 4
+    # --------------------------------------------------
+
+    number_match = re.fullmatch(
+        r"[1-4]",
+        cleaned_answer,
+    )
+
+    if number_match:
+
+        index = (
+            int(
+                number_match.group()
+            )
+            - 1
+        )
+
+        if 0 <= index < len(options):
+
+            return options[index]
+
+    # --------------------------------------------------
+    # Exact normalized text
+    # --------------------------------------------------
+
+    normalized_answer = normalize_quiz_string(
+        cleaned_answer
+    )
+
+    for option in options:
+
+        if (
+            normalize_quiz_string(
+                option
+            )
+            == normalized_answer
+        ):
+
+            return option
+
+    # --------------------------------------------------
+    # Small containment tolerance
+    # --------------------------------------------------
+
+    matches = []
+
+    for option in options:
+
+        normalized_option = normalize_quiz_string(
+            option
+        )
+
+        if not normalized_option:
+
+            continue
+
+        if (
+            normalized_answer in normalized_option
+            or normalized_option in normalized_answer
+        ):
+
+            matches.append(
+                option
+            )
+
+    if len(matches) == 1:
+
+        return matches[0]
+
+    return None
+
+
+# ==================================================
+# TRUTH TABLE PROTECTION
+# ==================================================
+
+def looks_like_truth_table_row(
+    text: str,
+) -> bool:
+    """
+    Detect text resembling one truth-table row.
+    """
+
+    normalized = str(
+        text
+    ).strip().lower()
+
+    truth_tokens = len(
+        re.findall(
+            r"\b(?:true|false|t|f)\b",
+            normalized,
+        )
+    )
+
+    variable_tokens = len(
+        re.findall(
+            r"\b[pqrs]\b",
+            normalized,
+        )
+    )
+
+    dictionary_pattern = (
+        "{" in normalized
+        and ":" in normalized
+    )
+
+    return (
+        truth_tokens >= 2
+        and (
+            variable_tokens >= 2
+            or dictionary_pattern
+        )
+    )
+
+
+def is_malformed_truth_table_question(
+    question: str,
+    options: list[str],
+) -> bool:
+    """
+    Reject malformed truth-table questions.
+    """
+
+    normalized_question = normalize_quiz_string(
+        question
+    )
+
+    asks_for_truth_table = any(
+        keyword in normalized_question
+        for keyword in [
+            "truth table",
+            "truth tables",
+            "complete truth table",
+            "truth value table",
+        ]
+    )
+
+    if not asks_for_truth_table:
+
+        return False
+
+    row_like_options = sum(
+        looks_like_truth_table_row(
+            option
+        )
+        for option in options
+    )
+
+    return row_like_options >= 2
+
+
+# ==================================================
+# OPTION QUALITY
+# ==================================================
+
+def validate_option_quality(
+    options: list[str],
+) -> None:
+    """
+    Validate answer options.
+    """
+
+    normalized_options = [
+        normalize_quiz_string(
+            option
+        )
+        for option in options
+    ]
+
+    if len(
+        set(normalized_options)
+    ) != len(options):
+
+        raise RuntimeError(
+            "Quiz question contains duplicate answer options."
+        )
+
+    for option in options:
+
+        if len(
+            normalize_quiz_string(
+                option
+            )
+        ) < 2:
+
+            raise RuntimeError(
+                "Quiz question contains an invalid answer option."
+            )
+
+    for index in range(
+        len(options)
+    ):
+
+        for other_index in range(
+            index + 1,
+            len(options),
+        ):
+
+            if are_similar_texts(
+                options[index],
+                options[other_index],
+                threshold=0.92,
+            ):
+
+                raise RuntimeError(
+                    "Quiz question contains nearly identical options."
+                )
+
+
+# ==================================================
+# EXTRACT ONE QUESTION
+# ==================================================
+
+def extract_single_quiz_question(
+    raw_response: str,
+) -> dict:
+    """
+    Parse the quiz response.
+
+    Since quiz generation uses Ollama JSON mode,
+    we expect a JSON object.
+
+    A balanced-bracket fallback is retained in case
+    Ollama still returns surrounding text.
+    """
+
+    text = str(
+        raw_response
+    ).strip()
+
+    if not text:
+
+        raise RuntimeError(
+            "AI quiz response was empty."
+        )
+
+    # --------------------------------------------------
+    # Direct JSON
+    # --------------------------------------------------
+
+    try:
+
+        parsed = json.loads(
+            text
+        )
+
+    except json.JSONDecodeError:
+
+        parsed = None
+
+    if isinstance(
+        parsed,
+        dict,
+    ):
+
+        if "question" in parsed:
+
+            return parsed
+
+        questions = parsed.get(
+            "questions"
+        )
+
+        if (
+            isinstance(
+                questions,
+                list,
+            )
+            and questions
+            and isinstance(
+                questions[0],
+                dict,
+            )
+        ):
+
+            return questions[0]
+
+    if (
+        isinstance(
+            parsed,
+            list,
+        )
+        and parsed
+        and isinstance(
+            parsed[0],
+            dict,
+        )
+    ):
+
+        return parsed[0]
+
+    # --------------------------------------------------
+    # Fallback balanced JSON object scan
+    # --------------------------------------------------
+
+    clean_text = re.sub(
+        r"```(?:json)?",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).replace(
+        "```",
+        "",
+    ).strip()
+
+    object_start = None
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for index, character in enumerate(
+        clean_text
+    ):
+
+        if in_string:
+
+            if escaped:
+
+                escaped = False
+
+            elif character == "\\":
+
+                escaped = True
+
+            elif character == '"':
+
+                in_string = False
+
+            continue
+
+        if character == '"':
+
+            in_string = True
+            continue
+
+        if character == "{":
+
+            if object_start is None:
+                object_start = index
+
+            depth += 1
+
+        elif character == "}":
+
+            if object_start is None:
+                continue
+
+            depth -= 1
+
+            if depth == 0:
+
+                candidate = clean_text[
+                    object_start:index + 1
+                ]
+
+                try:
+
+                    parsed = json.loads(
+                        candidate
+                    )
+
+                except json.JSONDecodeError:
+
+                    parsed = None
+
+                if isinstance(
+                    parsed,
+                    dict,
+                ):
+
+                    if "question" in parsed:
+
+                        return parsed
+
+                    questions = parsed.get(
+                        "questions"
+                    )
+
+                    if (
+                        isinstance(
+                            questions,
+                            list,
+                        )
+                        and questions
+                        and isinstance(
+                            questions[0],
+                            dict,
+                        )
+                    ):
+
+                        return questions[0]
+
+                object_start = None
+
+    raise RuntimeError(
+        "AI quiz response did not contain a valid question object."
+    )
+
+
+# ==================================================
+# VALIDATE ONE QUIZ QUESTION
+# ==================================================
+
+def validate_single_quiz_question(
+    item,
+) -> dict:
+    """
+    Validate a single generated quiz question.
+    """
+
+    if not isinstance(
+        item,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "AI quiz response is not a valid question object."
+        )
+
+    question = str(
+        item.get(
+            "question",
+            "",
+        )
+    ).strip()
+
+    options = item.get(
+        "options"
+    )
+
+    correct_answer_raw = str(
+        item.get(
+            "correct_answer",
+            "",
+        )
+    ).strip()
+
+    explanation = str(
+        item.get(
+            "explanation",
+            "",
+        )
+    ).strip()
+
+    if not question:
+
+        raise RuntimeError(
+            "Quiz question has no question text."
+        )
+
+    if not isinstance(
+        options,
+        list,
+    ):
+
+        raise RuntimeError(
+            "Quiz question options must be a list."
+        )
+
+    cleaned_options = [
+        clean_option_text(
+            str(option)
+        )
+        for option in options
+        if str(option).strip()
+    ]
+
+    if len(
+        cleaned_options
+    ) != 4:
+
+        raise RuntimeError(
+            "Quiz question must have exactly 4 options."
+        )
+
+    validate_option_quality(
+        cleaned_options
+    )
+
+    if is_malformed_truth_table_question(
+        question,
+        cleaned_options,
+    ):
+
+        raise RuntimeError(
+            "Quiz question is a malformed truth-table question."
+        )
+
+    correct_answer = match_correct_answer(
+        correct_answer_raw,
+        cleaned_options,
+    )
+
+    if not correct_answer:
+
+        raise RuntimeError(
+            "Quiz question has a correct answer "
+            f"that does not match any option: "
+            f"{correct_answer_raw}"
+        )
+
+    if not explanation:
+
+        raise RuntimeError(
+            "Quiz question has no explanation."
+        )
+
+    return {
+        "question": question,
+        "options": cleaned_options,
+        "correct_answer": correct_answer,
+        "explanation": explanation,
+    }
+
+
+# ==================================================
+# BUILD QUIZ PROMPT
+# ==================================================
+
+def build_single_quiz_prompt(
+    document_context: str,
+    difficulty: str,
+    question_number: int,
+    previous_questions: list[str],
+    retry: bool = False,
+) -> str:
+    """
+    Build the prompt for one quiz question.
+    """
+
+    if previous_questions:
+
+        previous_questions_text = "\n".join(
+            f"{index}. {question}"
+            for index, question in enumerate(
+                previous_questions,
+                start=1,
+            )
+        )
+
+    else:
+
+        previous_questions_text = (
+            "No questions have been generated yet."
+        )
+
+    retry_instruction = ""
+
+    if retry:
+
+        retry_instruction = """
+This is a retry because the previous response was
+invalid.
+
+Generate a completely new question.
+
+Double-check every JSON field before responding.
+"""
+
+    return f"""
+You are EduMind, an MCA quiz generator.
+
+Generate EXACTLY ONE multiple-choice question using
+ONLY the supplied study material.
+
+Question number:
+{question_number}
+
+Difficulty:
+{difficulty}
+
+{retry_instruction}
+
+--------------------------------------------------
+PREVIOUSLY ACCEPTED QUESTIONS
+--------------------------------------------------
+
+{previous_questions_text}
+
+Do NOT repeat any question above.
+
+Do NOT merely reword a previous question.
+
+Choose a DIFFERENT meaningful concept from the
+study material whenever possible.
+
+--------------------------------------------------
+DOCUMENT CONTEXT
+--------------------------------------------------
+
+{document_context}
+
+--------------------------------------------------
+QUESTION RULES
+--------------------------------------------------
+
+1. The question must be answerable from the document.
+2. Do not invent facts.
+3. Create exactly 4 options.
+4. Every option must be a different string.
+5. Exactly one option must be correct.
+6. Wrong options must be plausible.
+7. Include an explanation.
+8. Avoid malformed truth-table questions.
+9. Do not use Markdown.
+
+--------------------------------------------------
+IMPORTANT JSON RULES
+--------------------------------------------------
+
+Return ONE JSON OBJECT.
+
+The JSON object MUST contain exactly these fields:
+
+"question"
+"options"
+"correct_answer"
+"explanation"
+
+"options" MUST be an array containing exactly 4 strings.
+
+"correct_answer" MUST BE A SINGLE LETTER:
+"A", "B", "C", or "D".
+
+Do not write the full text of the option.
+
+Include commas between all JSON array elements.
+
+Do NOT write anything outside the JSON object.
+
+Example:
+
+{{
+  "question": "Question text",
+  "options": [
+    "First option",
+    "Second option",
+    "Third option",
+    "Fourth option"
+  ],
+  "correct_answer": "B",
+  "explanation": "The second option is correct because..."
+}}
+
+Return JSON only.
+"""
+
+
+# ==================================================
+# GENERATE ONE QUIZ QUESTION
+# ==================================================
+
+def generate_single_quiz_question(
+    document_context: str,
+    difficulty: str,
+    question_number: int,
+    previous_questions: list[str],
+) -> dict:
+    """
+    Generate and validate one question.
+
+    Three attempts are allowed.
+    """
+
+    last_error = None
+
+    for attempt in range(
+        1,
+        4,
+    ):
+
+        print(
+            f"Question {question_number}: "
+            f"generation + verification attempt "
+            f"{attempt}/3..."
+        )
+
+        prompt = build_single_quiz_prompt(
+            document_context=document_context,
+            difficulty=difficulty,
+            question_number=question_number,
+            previous_questions=previous_questions,
+            retry=attempt > 1,
+        )
+
+        raw_response = None
+
+        try:
+
+            raw_response = ask_ai(
+                prompt,
+                json_mode=True,
+            )
+
+            question_data = (
+                extract_single_quiz_question(
+                    raw_response
+                )
+            )
+
+            validated_question = (
+                validate_single_quiz_question(
+                    question_data
+                )
+            )
+
+            for previous_question in previous_questions:
+
+                if are_duplicate_questions(
+                    validated_question["question"],
+                    previous_question,
+                ):
+
+                    raise RuntimeError(
+                        "Generated question is an exact "
+                        "duplicate of an earlier question."
+                    )
+
+            print(
+                f"Question {question_number}: "
+                f"generation succeeded on attempt "
+                f"{attempt}."
+            )
+
+            return validated_question
+
+        except Exception as error:
+
+            last_error = error
+
+            print(
+                f"Question {question_number}: "
+                f"attempt {attempt} failed:",
+                error,
+            )
+
+            if raw_response is not None:
+
+                print(
+                    "\n"
+                    "================ RAW OLLAMA QUIZ RESPONSE "
+                    "================"
+                )
+
+                print(
+                    raw_response
+                )
+
+                print(
+                    "================ END RAW OLLAMA RESPONSE "
+                    "================\n"
+                )
+
+    raise RuntimeError(
+        f"Could not generate valid question "
+        f"{question_number} after 3 attempts: "
+        f"{last_error}"
+    )
+
+
+# ==================================================
+# GENERATE QUIZ
+# ==================================================
+
+def generate_quiz(
+    retrieved_chunks: list[dict],
+    num_questions: int = 5,
+    difficulty: str = "medium",
+) -> list[dict]:
+    """
+    Generate a document-grounded quiz.
+
+    Each question is generated independently while
+    seeing all previously accepted questions.
+    """
+
+    if not retrieved_chunks:
+
+        raise ValueError(
+            "No document context is available for quiz generation."
+        )
+
+    if not 1 <= num_questions <= 20:
+
+        raise ValueError(
+            "Number of quiz questions must be between 1 and 20."
+        )
+
+    difficulty = difficulty.strip().lower()
+
+    if difficulty not in {
+        "easy",
+        "medium",
+        "hard",
+    }:
+
+        raise ValueError(
+            "Difficulty must be easy, medium, or hard."
+        )
+
+    generated_questions = []
+
+    previous_questions = []
+
+    for question_number in range(
+        1,
+        num_questions + 1,
+    ):
+
+        print(
+            "\n"
+            f"Preparing question "
+            f"{question_number}/{num_questions}..."
+        )
+
+        chunk_index = (
+            question_number - 1
+        ) % len(retrieved_chunks)
+
+        document_context = format_retrieved_context(
+            [
+                retrieved_chunks[
+                    chunk_index
+                ]
+            ]
+        )
+
+        question = generate_single_quiz_question(
+            document_context=document_context,
+            difficulty=difficulty,
+            question_number=question_number,
+            previous_questions=previous_questions,
+        )
+
+        generated_questions.append(
+            question
+        )
+
+        previous_questions.append(
+            question["question"]
+        )
+
+    print(
+        "\n"
+        f"Quiz generation completed successfully: "
+        f"{len(generated_questions)} questions."
+    )
+
+    return generated_questions
+
+
+# ==================================================
+# FLASHCARD TEXT NORMALIZATION
+# ==================================================
+
+def normalize_flashcard_text(
+    text: str,
+) -> str:
+    """
+    Normalize flashcard text for comparisons.
+    """
+
+    text = str(
+        text
+    ).strip().lower()
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text,
+    )
+
+    text = re.sub(
+        r"[^a-z0-9\s]",
+        "",
+        text,
+    )
+
+    return text.strip()
+
+
+# ==================================================
+# FLASHCARD DUPLICATE DETECTION
+# ==================================================
+
+def are_duplicate_flashcards(
+    first: str,
+    second: str,
+) -> bool:
+    """
+    Detect exact or near-duplicate flashcard fronts.
+    """
+
+    first_normalized = normalize_flashcard_text(
+        first
+    )
+
+    second_normalized = normalize_flashcard_text(
+        second
+    )
+
+    if not first_normalized or not second_normalized:
+
+        return False
+
+    if first_normalized == second_normalized:
+
+        return True
+
+    similarity = SequenceMatcher(
+        None,
+        first_normalized,
+        second_normalized,
+    ).ratio()
+
+    return similarity >= 0.85
+
+
+# ==================================================
+# FLASHCARD TRUTH-TABLE DETECTION
+# ==================================================
+
+def looks_like_truth_table_flashcard_back(
+    text: str,
+) -> bool:
+    """
+    Detect flattened truth-table answers.
+
+    A flashcard should not return a raw sequence such as:
+
+        A B A→B T T T T F F F T F T T F
+
+    Instead, it should explain the concept in readable
+    revision language.
+    """
+
+    normalized = normalize_text(
+        text
+    ).lower()
+
+    if not normalized:
+
+        return False
+
+    truth_tokens = len(
+        re.findall(
+            r"\b(?:true|false|t|f)\b",
+            normalized,
+        )
+    )
+
+    variable_tokens = len(
+        re.findall(
+            r"\b[a-z]\b",
+            normalized,
+        )
+    )
+
+    compact_boolean_sequence = bool(
+        re.search(
+            r"(?:\b[abcdpqrs]\b[\s,:;]*){2,}",
+            normalized,
+        )
+    )
+
+    arrow_present = (
+        "→" in normalized
+        or "->" in normalized
+        or "⇒" in normalized
+    )
+
+    # Strong indication of a flattened table:
+    # multiple truth tokens plus variables/arrow.
+    if (
+        truth_tokens >= 4
+        and (
+            variable_tokens >= 2
+            or arrow_present
+        )
+    ):
+
+        return True
+
+    # Detect very compact table-like sequences.
+    words = normalized.split()
+
+    if (
+        len(words) >= 8
+        and truth_tokens >= 4
+        and compact_boolean_sequence
+    ):
+
+        return True
+
+    return False
+
+
+# ==================================================
+# FLASHCARD FRONT QUALITY
+# ==================================================
+
+def looks_like_clear_flashcard_front(
+    front: str,
+) -> bool:
+    """
+    Perform a lightweight quality check on the
+    flashcard question/front.
+
+    The front does not need to literally end with '?',
+    but it should clearly ask for or identify one
+    concept.
+    """
+
+    normalized = normalize_text(
+        front
+    ).lower()
+
+    if not normalized:
+
+        return False
+
+    if len(normalized) < 8:
+
+        return False
+
+    question_indicators = [
+        "what",
+        "who",
+        "when",
+        "where",
+        "why",
+        "how",
+        "which",
+        "define",
+        "explain",
+        "describe",
+        "name",
+        "identify",
+        "meaning",
+        "purpose",
+    ]
+
+    starts_with_indicator = any(
+        normalized.startswith(
+            indicator + " "
+        )
+        for indicator in question_indicators
+    )
+
+    contains_question_mark = (
+        "?" in normalized
+    )
+
+    contains_definition_pattern = (
+        normalized.startswith(
+            "definition of "
+        )
+        or normalized.startswith(
+            "meaning of "
+        )
+        or normalized.startswith(
+            "explain "
+        )
+    )
+
+    return (
+        starts_with_indicator
+        or contains_question_mark
+        or contains_definition_pattern
+    )
+
+
+# ==================================================
+# FLASHCARD BACK QUALITY
+# ==================================================
+
+def validate_flashcard_back_quality(
+    back: str,
+) -> None:
+    """
+    Validate the flashcard answer/back.
+
+    The answer should be useful for revision:
+    concise, readable and not a raw table dump.
+    """
+
+    normalized = normalize_text(
+        back
+    )
+
+    if not normalized:
+
+        raise RuntimeError(
+            "Flashcard back is empty."
+        )
+
+    normalized_without_punctuation = (
+        normalize_flashcard_text(
+            normalized
+        )
+    )
+
+    if len(
+        normalized_without_punctuation
+    ) < 8:
+
+        raise RuntimeError(
+            "Flashcard back is too short."
+        )
+
+    if len(normalized) > 900:
+
+        raise RuntimeError(
+            "Flashcard back is too long for a revision card."
+        )
+
+    if looks_like_truth_table_flashcard_back(
+        normalized
+    ):
+
+        raise RuntimeError(
+            "Flashcard back contains a raw or "
+            "flattened truth table."
+        )
+
+
+# ==================================================
+# EXTRACT ONE FLASHCARD
+# ==================================================
+
+def extract_single_flashcard(
+    raw_response: str,
+) -> dict:
+    """
+    Parse one flashcard object from the AI response.
+    """
+
+    text = str(
+        raw_response
+    ).strip()
+
+    if not text:
+
+        raise RuntimeError(
+            "AI flashcard response was empty."
+        )
+
+    # --------------------------------------------------
+    # Direct JSON
+    # --------------------------------------------------
+
+    try:
+
+        parsed = json.loads(
+            text
+        )
+
+    except json.JSONDecodeError:
+
+        parsed = None
+
+    if isinstance(
+        parsed,
+        dict,
+    ):
+
+        if (
+            "front" in parsed
+            and "back" in parsed
+        ):
+
+            return parsed
+
+        flashcards = parsed.get(
+            "flashcards"
+        )
+
+        if (
+            isinstance(
+                flashcards,
+                list,
+            )
+            and flashcards
+            and isinstance(
+                flashcards[0],
+                dict,
+            )
+        ):
+
+            return flashcards[0]
+
+    if (
+        isinstance(
+            parsed,
+            list,
+        )
+        and parsed
+        and isinstance(
+            parsed[0],
+            dict,
+        )
+    ):
+
+        return parsed[0]
+
+    # --------------------------------------------------
+    # Balanced JSON object scan
+    # --------------------------------------------------
+
+    clean_text = re.sub(
+        r"```(?:json)?",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).replace(
+        "```",
+        "",
+    ).strip()
+
+    object_start = None
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for index, character in enumerate(
+        clean_text
+    ):
+
+        if in_string:
+
+            if escaped:
+
+                escaped = False
+
+            elif character == "\\":
+
+                escaped = True
+
+            elif character == '"':
+
+                in_string = False
+
+            continue
+
+        if character == '"':
+
+            in_string = True
+            continue
+
+        if character == "{":
+
+            if object_start is None:
+                object_start = index
+
+            depth += 1
+
+        elif character == "}":
+
+            if object_start is None:
+                continue
+
+            depth -= 1
+
+            if depth == 0:
+
+                candidate = clean_text[
+                    object_start:index + 1
+                ]
+
+                try:
+
+                    parsed = json.loads(
+                        candidate
+                    )
+
+                except json.JSONDecodeError:
+
+                    parsed = None
+
+                if isinstance(
+                    parsed,
+                    dict,
+                ):
+
+                    if (
+                        "front" in parsed
+                        and "back" in parsed
+                    ):
+
+                        return parsed
+
+                    flashcards = parsed.get(
+                        "flashcards"
+                    )
+
+                    if (
+                        isinstance(
+                            flashcards,
+                            list,
+                        )
+                        and flashcards
+                        and isinstance(
+                            flashcards[0],
+                            dict,
+                        )
+                    ):
+
+                        return flashcards[0]
+
+                object_start = None
+
+    raise RuntimeError(
+        "AI flashcard response did not contain "
+        "a valid flashcard object."
+    )
+
+
+# ==================================================
+# VALIDATE ONE FLASHCARD
+# ==================================================
+
+def validate_single_flashcard(
+    item,
+) -> dict:
+    """
+    Validate and normalize one flashcard.
+    """
+
+    if not isinstance(
+        item,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "AI flashcard response is not a valid object."
+        )
+
+    front = str(
+        item.get(
+            "front",
+            "",
+        )
+    ).strip()
+
+    back = str(
+        item.get(
+            "back",
+            "",
+        )
+    ).strip()
+
+    if not front:
+
+        raise RuntimeError(
+            "Flashcard front is empty."
+        )
+
+    if not back:
+
+        raise RuntimeError(
+            "Flashcard back is empty."
+        )
+
+    if not looks_like_clear_flashcard_front(
+        front
+    ):
+
+        raise RuntimeError(
+            "Flashcard front is not a clear study question."
+        )
+
+    validate_flashcard_back_quality(
+        back
+    )
+
+    return {
+        "front": front,
+        "back": back,
+    }
+
+
+# ==================================================
+# BUILD SINGLE FLASHCARD PROMPT
+# ==================================================
+
+def build_single_flashcard_prompt(
+    document_context: str,
+    difficulty: str,
+    card_number: int,
+    previous_fronts: list[str],
+    retry: bool = False,
+) -> str:
+    """
+    Build a prompt for generating one flashcard.
+    """
+
+    if previous_fronts:
+
+        previous_text = "\n".join(
+            f"{index}. {front}"
+            for index, front in enumerate(
+                previous_fronts,
+                start=1,
+            )
+        )
+
+    else:
+
+        previous_text = (
+            "No flashcards have been generated yet."
+        )
+
+    retry_instruction = ""
+
+    if retry:
+
+        retry_instruction = """
+IMPORTANT RETRY:
+
+The previous flashcard failed quality validation.
+
+Generate a completely different flashcard.
+
+Pay particular attention to:
+
+- clear question/front
+- concise answer/back
+- accurate document-grounded content
+- readable formatting
+- no raw truth-table rows
+- no duplicate concept
+"""
+
+    return f"""
+You are EduMind, an AI study assistant for MCA students.
+
+Generate EXACTLY ONE high-quality flashcard using ONLY
+the supplied study material.
+
+Flashcard number:
+{card_number}
+
+Difficulty:
+{difficulty}
+
+{retry_instruction}
+
+--------------------------------------------------
+PREVIOUS FLASHCARD FRONTS
+--------------------------------------------------
+
+{previous_text}
+
+Do NOT repeat or merely reword any previous front.
+
+Choose another meaningful concept, definition,
+relationship, principle, example, or application
+from the supplied study material whenever possible.
+
+--------------------------------------------------
+DOCUMENT CONTEXT
+--------------------------------------------------
+
+{document_context}
+
+--------------------------------------------------
+FLASHCARD QUALITY RULES
+--------------------------------------------------
+
+1. Use ONLY information supported by the document.
+2. Do not invent facts.
+3. The front must ask ONE clear study question
+   or clearly ask for ONE concept/definition.
+4. The front should be understandable without
+   additional context.
+5. The back must directly answer the front.
+6. Keep the back concise and useful for revision.
+7. Preserve important technical terminology.
+8. Prefer exam-relevant concepts.
+9. Do not create duplicate or near-duplicate fronts.
+10. Do not include unrelated information.
+11. Do not use Markdown.
+12. Do not mention this prompt.
+13. Do not mention Ollama.
+
+--------------------------------------------------
+TRUTH TABLE RULE
+--------------------------------------------------
+
+If the document contains a truth table:
+
+DO NOT dump the table as a flattened sequence such as:
+
+A B A→B T T T T F F F T F T T F
+
+Instead, summarize the important rule in normal language.
+
+For example:
+
+"The implication P → Q is false only when P is true
+and Q is false."
+
+A flashcard answer must be readable by a student.
+
+--------------------------------------------------
+ANSWER LENGTH
+--------------------------------------------------
+
+Keep the back concise.
+
+Prefer approximately 1–4 sentences.
+
+Do not copy an entire page or large table into the back.
+
+--------------------------------------------------
+JSON RULES
+--------------------------------------------------
+
+Return ONE JSON OBJECT only.
+
+The object MUST contain exactly:
+
+"front"
+"back"
+
+"front" must be a string.
+
+"back" must be a string.
+
+Do NOT return an array.
+
+Do NOT add commentary before or after the JSON.
+
+Example:
+
+{{
+  "front": "What is a proposition?",
+  "back": "A proposition is a statement that can be either true or false, but not both."
+}}
+
+Return JSON only.
+"""
+
+
+# ==================================================
+# GENERATE ONE FLASHCARD
+# ==================================================
+
+def generate_single_flashcard(
+    document_context: str,
+    difficulty: str,
+    card_number: int,
+    previous_fronts: list[str],
+) -> dict:
+    """
+    Generate and validate one flashcard.
+
+    Three attempts are allowed.
+    """
+
+    last_error = None
+
+    for attempt in range(
+        1,
+        4,
+    ):
+
+        print(
+            f"Flashcard {card_number}: "
+            f"generation attempt {attempt}/3..."
+        )
+
+        prompt = build_single_flashcard_prompt(
+            document_context=document_context,
+            difficulty=difficulty,
+            card_number=card_number,
+            previous_fronts=previous_fronts,
+            retry=attempt > 1,
+        )
+
+        raw_response = None
+
+        try:
+
+            raw_response = ask_ai(
+                prompt,
+                json_mode=True,
+            )
+
+            flashcard_data = extract_single_flashcard(
+                raw_response
+            )
+
+            flashcard = validate_single_flashcard(
+                flashcard_data
+            )
+
+            # --------------------------------------------------
+            # Duplicate protection
+            # --------------------------------------------------
+
+            for previous_front in previous_fronts:
+
+                if are_duplicate_flashcards(
+                    flashcard["front"],
+                    previous_front,
+                ):
+
+                    raise RuntimeError(
+                        "Generated flashcard is a duplicate "
+                        "or near-duplicate of an earlier flashcard."
+                    )
+
+            print(
+                f"Flashcard {card_number}: "
+                f"generation succeeded on attempt {attempt}."
+            )
+
+            return flashcard
+
+        except Exception as error:
+
+            last_error = error
+
+            print(
+                f"Flashcard {card_number}: "
+                f"attempt {attempt} failed:",
+                error,
+            )
+
+            if raw_response is not None:
+
+                print(
+                    "\n"
+                    "================ RAW OLLAMA FLASHCARD RESPONSE "
+                    "================"
+                )
+
+                print(
+                    raw_response
+                )
+
+                print(
+                    "================ END RAW OLLAMA RESPONSE "
+                    "================\n"
+                )
+
+    raise RuntimeError(
+        f"Could not generate valid flashcard "
+        f"{card_number} after 3 attempts: "
+        f"{last_error}"
+    )
+
+
+# ==================================================
+# GENERATE FLASHCARDS
+# ==================================================
+
+def generate_flashcards(
+    retrieved_chunks: list[dict],
+    num_cards: int = 5,
+    difficulty: str = "medium",
+) -> list[dict]:
+    """
+    Generate document-grounded flashcards.
+
+    Cards are generated one at a time and each card
+    uses a different retrieved chunk where possible.
+    """
+
+    if not retrieved_chunks:
+
+        raise ValueError(
+            "No document context is available "
+            "for flashcard generation."
+        )
+
+    if not 1 <= num_cards <= 20:
+
+        raise ValueError(
+            "Number of flashcards must be between 1 and 20."
+        )
+
+    difficulty = difficulty.strip().lower()
+
+    if difficulty not in {
+        "easy",
+        "medium",
+        "hard",
+    }:
+
+        raise ValueError(
+            "Difficulty must be easy, medium, or hard."
+        )
+
+    generated_flashcards = []
+
+    previous_fronts = []
+
+    for card_number in range(
+        1,
+        num_cards + 1,
+    ):
+
+        print(
+            "\n"
+            f"Preparing flashcard "
+            f"{card_number}/{num_cards}..."
+        )
+
+        # --------------------------------------------------
+        # Rotate through retrieved chunks.
+        # --------------------------------------------------
+
+        chunk_index = (
+            card_number - 1
+        ) % len(retrieved_chunks)
+
+        document_context = format_retrieved_context(
+            [
+                retrieved_chunks[
+                    chunk_index
+                ]
+            ]
+        )
+
+        flashcard = generate_single_flashcard(
+            document_context=document_context,
+            difficulty=difficulty,
+            card_number=card_number,
+            previous_fronts=previous_fronts,
+        )
+
+        generated_flashcards.append(
+            flashcard
+        )
+
+        previous_fronts.append(
+            flashcard["front"]
+        )
+
+    print(
+        "\n"
+        f"Flashcard generation completed successfully: "
+        f"{len(generated_flashcards)} cards."
+    )
+
+    return generated_flashcards

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -15,7 +17,8 @@ from services.ai_service import (
     generate_summary,
     ask_tutor,
     extract_pdf_text,
-    rewrite_tutor_query,
+    generate_quiz,
+    generate_flashcards,
 )
 
 from services.rag_service import (
@@ -49,6 +52,34 @@ class TutorRequest(BaseModel):
     conversation_history: list[TutorMessage] = Field(
         default_factory=list
     )
+
+
+class QuizRequest(BaseModel):
+    num_questions: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+    )
+
+    difficulty: Literal[
+        "easy",
+        "medium",
+        "hard",
+    ] = "medium"
+
+
+class FlashcardRequest(BaseModel):
+    num_cards: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+    )
+
+    difficulty: Literal[
+        "easy",
+        "medium",
+        "hard",
+    ] = "medium"
 
 
 # --------------------------------------------------
@@ -205,8 +236,7 @@ async def create_material(
             )
 
             # The material itself is still kept.
-            # RAG can be created later when the Tutor
-            # is opened.
+            # RAG can be created later when needed.
 
     return new_material
 
@@ -287,10 +317,6 @@ def get_material_file(
         suffix,
         "application/octet-stream",
     )
-
-    # --------------------------------------------------
-    # Return file INLINE
-    # --------------------------------------------------
 
     return FileResponse(
         path=file_path,
@@ -490,13 +516,8 @@ def ask_material_tutor(
 ):
     """
     Answer a student's question using document-grounded
-    retrieval, conversational query rewriting, and
-    conversation history.
+    retrieval and conversation history.
     """
-
-    # --------------------------------------------------
-    # Find Material
-    # --------------------------------------------------
 
     material = (
         db.query(Material)
@@ -520,10 +541,6 @@ def ask_material_tutor(
             detail="File is not available for this material.",
         )
 
-    # --------------------------------------------------
-    # Validate Question
-    # --------------------------------------------------
-
     question = request.question.strip()
 
     if not question:
@@ -532,10 +549,6 @@ def ask_material_tutor(
             status_code=400,
             detail="Question cannot be empty.",
         )
-
-    # --------------------------------------------------
-    # Build Physical File Path
-    # --------------------------------------------------
 
     file_path = (
         BASE_DIR
@@ -549,10 +562,6 @@ def ask_material_tutor(
             detail="Physical file not found.",
         )
 
-    # --------------------------------------------------
-    # Currently RAG supports PDFs
-    # --------------------------------------------------
-
     if material.type != "PDF":
 
         raise HTTPException(
@@ -564,56 +573,6 @@ def ask_material_tutor(
         )
 
     try:
-
-        # --------------------------------------------------
-        # Convert conversation history
-        # --------------------------------------------------
-
-        conversation_history = [
-            message.model_dump()
-            for message in request.conversation_history
-        ]
-
-        # --------------------------------------------------
-        # Rewrite Question For Retrieval
-        # --------------------------------------------------
-        #
-        # IMPORTANT:
-        #
-        # The rewritten question is ONLY used for
-        # vector retrieval.
-        #
-        # The original student question is still passed
-        # to ask_tutor() so the tutor answers naturally.
-        #
-        # Example:
-        #
-        # Student:
-        # "Why is it useful?"
-        #
-        # Search query:
-        # "Why is propositional logic useful?"
-        #
-        # --------------------------------------------------
-
-        search_query = rewrite_tutor_query(
-            question=question,
-            conversation_history=conversation_history,
-        )
-
-        print(
-            "Original tutor question:",
-            question,
-        )
-
-        print(
-            "Rewritten retrieval query:",
-            search_query,
-        )
-
-        # --------------------------------------------------
-        # Create vector store if it does not exist
-        # --------------------------------------------------
 
         if not vector_store_exists(
             material_id
@@ -638,20 +597,31 @@ def ask_material_tutor(
                 f"{material_id}."
             )
 
-        # --------------------------------------------------
-        # Retrieve relevant document chunks
-        # --------------------------------------------------
-        #
-        # IMPORTANT:
-        #
-        # We retrieve using search_query, NOT the
-        # original vague follow-up question.
-        #
-        # --------------------------------------------------
+        from services.ai_service import rewrite_tutor_query
+
+        conversation_history = [
+            message.model_dump()
+            for message in request.conversation_history
+        ]
+
+        rewritten_query = rewrite_tutor_query(
+            question=question,
+            conversation_history=conversation_history,
+        )
+
+        print(
+            "Original tutor question:",
+            question,
+        )
+
+        print(
+            "Rewritten retrieval query:",
+            rewritten_query,
+        )
 
         retrieved_chunks = retrieve_relevant_chunks(
             material_id=material_id,
-            question=search_query,
+            question=rewritten_query,
             top_k=5,
         )
 
@@ -660,10 +630,6 @@ def ask_material_tutor(
             f"relevant chunks for material "
             f"{material_id}."
         )
-
-        # --------------------------------------------------
-        # Generate grounded answer
-        # --------------------------------------------------
 
         answer = ask_tutor(
             question=question,
@@ -698,5 +664,325 @@ def ask_material_tutor(
             status_code=500,
             detail=(
                 "Failed to generate AI Tutor response."
+            ),
+        )
+
+
+# --------------------------------------------------
+# POST - GENERATE AI QUIZ
+# --------------------------------------------------
+
+@router.post("/{material_id}/quiz")
+def generate_material_quiz(
+    material_id: int,
+    request: QuizRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Generate a document-grounded multiple-choice quiz
+    from the selected PDF material.
+    """
+
+    material = (
+        db.query(Material)
+        .filter(
+            Material.id == material_id
+        )
+        .first()
+    )
+
+    if not material:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Material not found.",
+        )
+
+    if not material.file_path:
+
+        raise HTTPException(
+            status_code=404,
+            detail="File is not available for this material.",
+        )
+
+    if material.type != "PDF":
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Document-grounded quiz generation is "
+                "currently available for PDF materials."
+            ),
+        )
+
+    file_path = (
+        BASE_DIR
+        / material.file_path
+    )
+
+    if not file_path.exists():
+
+        raise HTTPException(
+            status_code=404,
+            detail="Physical file not found.",
+        )
+
+    try:
+
+        if not vector_store_exists(
+            material_id
+        ):
+
+            print(
+                f"Creating RAG index for quiz generation "
+                f"for material {material_id}..."
+            )
+
+            extracted_text = extract_pdf_text(
+                str(file_path)
+            )
+
+            build_vector_store(
+                material_id,
+                extracted_text,
+            )
+
+            print(
+                f"RAG index created for material "
+                f"{material_id}."
+            )
+
+        retrieval_query = (
+            "important concepts, definitions, key facts, "
+            "applications, principles, examples, and exam-relevant "
+            "topics from this study material"
+        )
+
+        print(
+            "Quiz retrieval query:",
+            retrieval_query,
+        )
+
+        retrieved_chunks = retrieve_relevant_chunks(
+            material_id=material_id,
+            question=retrieval_query,
+            top_k=8,
+        )
+
+        print(
+            f"Retrieved {len(retrieved_chunks)} "
+            f"chunks for quiz generation "
+            f"for material {material_id}."
+        )
+
+        quiz = generate_quiz(
+            retrieved_chunks=retrieved_chunks,
+            num_questions=request.num_questions,
+            difficulty=request.difficulty,
+        )
+
+        return {
+            "material_id": material_id,
+            "title": material.title,
+            "num_questions": len(quiz),
+            "difficulty": request.difficulty,
+            "questions": quiz,
+            "sources": [
+                {
+                    "chunk_index": item["chunk_index"],
+                    "score": item["score"],
+                }
+                for item in retrieved_chunks
+            ],
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+
+        print(
+            f"Quiz generation error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate quiz: {error}",
+        )
+
+
+# --------------------------------------------------
+# POST - GENERATE AI FLASHCARDS
+# --------------------------------------------------
+
+@router.post("/{material_id}/flashcards")
+def generate_material_flashcards(
+    material_id: int,
+    request: FlashcardRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Generate document-grounded flashcards
+    from the selected PDF material.
+    """
+
+    # --------------------------------------------------
+    # Find Material
+    # --------------------------------------------------
+
+    material = (
+        db.query(Material)
+        .filter(
+            Material.id == material_id
+        )
+        .first()
+    )
+
+    if not material:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Material not found.",
+        )
+
+    if not material.file_path:
+
+        raise HTTPException(
+            status_code=404,
+            detail="File is not available for this material.",
+        )
+
+    # --------------------------------------------------
+    # Flashcards currently support PDFs
+    # --------------------------------------------------
+
+    if material.type != "PDF":
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Document-grounded flashcard generation is "
+                "currently available for PDF materials."
+            ),
+        )
+
+    # --------------------------------------------------
+    # Physical file
+    # --------------------------------------------------
+
+    file_path = (
+        BASE_DIR
+        / material.file_path
+    )
+
+    if not file_path.exists():
+
+        raise HTTPException(
+            status_code=404,
+            detail="Physical file not found.",
+        )
+
+    try:
+
+        # --------------------------------------------------
+        # Create RAG index if necessary
+        # --------------------------------------------------
+
+        if not vector_store_exists(
+            material_id
+        ):
+
+            print(
+                f"Creating RAG index for flashcard generation "
+                f"for material {material_id}..."
+            )
+
+            extracted_text = extract_pdf_text(
+                str(file_path)
+            )
+
+            build_vector_store(
+                material_id,
+                extracted_text,
+            )
+
+            print(
+                f"RAG index created for material "
+                f"{material_id}."
+            )
+
+        # --------------------------------------------------
+        # Retrieve broad flashcard-generation context
+        # --------------------------------------------------
+
+        retrieval_query = (
+            "important concepts, definitions, key facts, "
+            "terms, principles, examples, applications, "
+            "and exam-relevant topics for revision "
+            "from this study material"
+        )
+
+        print(
+            "Flashcard retrieval query:",
+            retrieval_query,
+        )
+
+        retrieved_chunks = retrieve_relevant_chunks(
+            material_id=material_id,
+            question=retrieval_query,
+            top_k=8,
+        )
+
+        print(
+            f"Retrieved {len(retrieved_chunks)} "
+            f"chunks for flashcard generation "
+            f"for material {material_id}."
+        )
+
+        if not retrieved_chunks:
+
+            raise RuntimeError(
+                "No relevant document context was retrieved "
+                "for flashcard generation."
+            )
+
+        # --------------------------------------------------
+        # Generate Flashcards
+        # --------------------------------------------------
+
+        flashcards = generate_flashcards(
+            retrieved_chunks=retrieved_chunks,
+            num_cards=request.num_cards,
+            difficulty=request.difficulty,
+        )
+
+        return {
+            "material_id": material_id,
+            "title": material.title,
+            "num_cards": len(flashcards),
+            "difficulty": request.difficulty,
+            "flashcards": flashcards,
+            "sources": [
+                {
+                    "chunk_index": item["chunk_index"],
+                    "score": item["score"],
+                }
+                for item in retrieved_chunks
+            ],
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+
+        print(
+            f"Flashcard generation error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Failed to generate flashcards: {error}"
             ),
         )

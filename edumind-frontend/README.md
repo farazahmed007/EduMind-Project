@@ -1,16 +1,45 @@
-# React + Vite
+# EduMind
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+EduMind is a React frontend with a FastAPI backend.
 
-Currently, two official plugins are available:
+## Run the full project with one command
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+From the project root (`EduMind project`), run either:
 
-## React Compiler
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\run-project.ps1
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+or double-click `run-project.bat`. The launcher opens the backend and frontend in separate terminal windows.
 
-## Expanding the Oxlint configuration
+Open the app at <http://localhost:5173>. The backend API is available at <http://localhost:8000> and its health check is at <http://localhost:8000/api/health>.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+## First-time setup
+
+Install Node.js and Python first. Then install the dependencies once:
+
+```powershell
+cd edumind-frontend
+npm install
+
+cd ..\edumind-backend
+python -m pip install -r requirements.txt
+```
+
+The launcher uses `edumind-backend\.venv\Scripts\python.exe` or `venv\Scripts\python.exe` when available. Otherwise, it uses Python from PATH.
+
+## Run services separately
+
+Backend:
+
+```powershell
+cd edumind-backend
+python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Frontend:
+
+```powershell
+cd edumind-frontend
+npm run dev
+```
