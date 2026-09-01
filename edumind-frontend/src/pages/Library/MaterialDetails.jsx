@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 
@@ -70,6 +70,8 @@ function MaterialDetails() {
   const [quizScore, setQuizScore] = useState(0);
   const [quizCompleted, setQuizCompleted] = useState(false);
   const [quizDifficulty, setQuizDifficulty] = useState("medium");
+  const quizAnalyticsRecordedRef = useRef(false);
+  const quizScoreRef = useRef(0);
 
   // --------------------------------------------------
   // Flashcard states
@@ -82,6 +84,7 @@ function MaterialDetails() {
   const [flashcardCurrentIndex, setFlashcardCurrentIndex] = useState(0);
   const [flashcardRevealed, setFlashcardRevealed] = useState(false);
   const [flashcardDifficulty, setFlashcardDifficulty] = useState("medium");
+  const flashcardAnalyticsRecordedRef = useRef(false);
 
   // --------------------------------------------------
   // Load material information
@@ -331,10 +334,101 @@ function MaterialDetails() {
   };
 
   // --------------------------------------------------
+  // Record completed quiz for Analytics
+  // --------------------------------------------------
+
+  const recordQuizAnalytics = async (score, total) => {
+    if (quizAnalyticsRecordedRef.current) {
+      return;
+    }
+
+    quizAnalyticsRecordedRef.current = true;
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/analytics/quiz-attempt`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            material_id: Number(id),
+            score: Number(score),
+            total: Number(total),
+            difficulty: quizDifficulty,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          "Failed to record quiz analytics."
+        );
+      }
+
+      console.log("Quiz analytics recorded successfully.");
+    } catch (error) {
+      console.error(
+        "Error recording quiz analytics:",
+        error
+      );
+      quizAnalyticsRecordedRef.current = false;
+    }
+  };
+
+  // --------------------------------------------------
+  // Record completed flashcard session for Analytics
+  // --------------------------------------------------
+
+  const recordFlashcardAnalytics = async (cardsReviewed) => {
+    if (flashcardAnalyticsRecordedRef.current) {
+      return;
+    }
+
+    flashcardAnalyticsRecordedRef.current = true;
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/analytics/flashcard-session`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            material_id: Number(id),
+            cards_reviewed: Number(cardsReviewed),
+            difficulty: flashcardDifficulty,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          "Failed to record flashcard analytics."
+        );
+      }
+
+      console.log(
+        "Flashcard analytics recorded successfully."
+      );
+    } catch (error) {
+      console.error(
+        "Error recording flashcard analytics:",
+        error
+      );
+      flashcardAnalyticsRecordedRef.current = false;
+    }
+  };
+
+  // --------------------------------------------------
   // Reset Quiz State
   // --------------------------------------------------
 
   const resetQuizState = () => {
+    quizAnalyticsRecordedRef.current = false;
+    quizScoreRef.current = 0;
     setQuizQuestions([]);
     setQuizCurrentIndex(0);
     setQuizSelectedOption("");
@@ -408,6 +502,7 @@ function MaterialDetails() {
         );
       }
 
+      quizScoreRef.current = 0;
       setQuizQuestions(data.questions);
       setQuizCurrentIndex(0);
       setQuizSelectedOption("");
@@ -464,7 +559,8 @@ function MaterialDetails() {
       quizSelectedOption ===
       currentQuestion.correct_answer
     ) {
-      setQuizScore((previousScore) => previousScore + 1);
+      quizScoreRef.current += 1;
+      setQuizScore(quizScoreRef.current);
     }
 
     setQuizAnswerSubmitted(true);
@@ -474,12 +570,20 @@ function MaterialDetails() {
   // Next Quiz Question
   // --------------------------------------------------
 
-  const handleNextQuizQuestion = () => {
+  const handleNextQuizQuestion = async () => {
     const isLastQuestion =
       quizCurrentIndex >=
       quizQuestions.length - 1;
 
     if (isLastQuestion) {
+      const finalScore = quizScoreRef.current;
+
+      await recordQuizAnalytics(
+        finalScore,
+        quizQuestions.length
+      );
+
+      setQuizScore(finalScore);
       setQuizCompleted(true);
       return;
     }
@@ -506,6 +610,7 @@ function MaterialDetails() {
   // --------------------------------------------------
 
   const resetFlashcardState = () => {
+    flashcardAnalyticsRecordedRef.current = false;
     setFlashcards([]);
     setFlashcardCurrentIndex(0);
     setFlashcardRevealed(false);
@@ -596,7 +701,19 @@ function MaterialDetails() {
   // --------------------------------------------------
 
   const handleNextFlashcard = () => {
-    if (flashcardCurrentIndex >= flashcards.length - 1) {
+    if (!flashcards.length) {
+      return;
+    }
+
+    const isLastFlashcard =
+      flashcardCurrentIndex >= flashcards.length - 1;
+
+    if (isLastFlashcard) {
+      if (flashcardRevealed) {
+        void recordFlashcardAnalytics(
+          flashcards.length
+        );
+      }
       return;
     }
 
@@ -611,6 +728,22 @@ function MaterialDetails() {
 
     setFlashcardCurrentIndex((previousIndex) => previousIndex - 1);
     setFlashcardRevealed(false);
+  };
+
+  const handleToggleFlashcardReveal = () => {
+    const shouldReveal = !flashcardRevealed;
+
+    setFlashcardRevealed(shouldReveal);
+
+    if (
+      shouldReveal &&
+      flashcards.length > 0 &&
+      flashcardCurrentIndex === flashcards.length - 1
+    ) {
+      void recordFlashcardAnalytics(
+        flashcards.length
+      );
+    }
   };
 
   const handleRetryFlashcards = () => {
@@ -2216,7 +2349,7 @@ function MaterialDetails() {
                     {/* Card */}
                     <button
                       type="button"
-                      onClick={() => setFlashcardRevealed((previous) => !previous)}
+                      onClick={handleToggleFlashcardReveal}
                       className="group block w-full text-left"
                       aria-label={
                         flashcardRevealed
@@ -2296,7 +2429,7 @@ function MaterialDetails() {
                       </button>
 
                       <button
-                        onClick={() => setFlashcardRevealed((previous) => !previous)}
+                        onClick={handleToggleFlashcardReveal}
                         className="inline-flex items-center gap-2 rounded-xl bg-[#2FA084] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1F6F5F]"
                       >
                         {flashcardRevealed ? (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   AlertCircle,
@@ -76,6 +76,18 @@ export default function Quiz() {
   const [score, setScore] = useState(0);
 
   const [completed, setCompleted] = useState(false);
+
+  // --------------------------------------------------
+  // Quiz analytics state
+  // --------------------------------------------------
+
+  const quizScoreRef = useRef(0);
+  const quizAnalyticsRecordedRef = useRef(false);
+
+  const [quizAnalyticsLoading, setQuizAnalyticsLoading] =
+    useState(false);
+  const [quizAnalyticsError, setQuizAnalyticsError] =
+    useState("");
 
   // --------------------------------------------------
   // Load PDF materials
@@ -161,6 +173,91 @@ export default function Quiz() {
     setScore(0);
     setCompleted(false);
     setQuizError("");
+    setQuizAnalyticsLoading(false);
+    setQuizAnalyticsError("");
+
+    quizScoreRef.current = 0;
+    quizAnalyticsRecordedRef.current = false;
+  };
+
+  // --------------------------------------------------
+  // Record completed quiz analytics
+  // --------------------------------------------------
+
+  const recordQuizAnalytics = async () => {
+    if (
+      quizAnalyticsRecordedRef.current ||
+      !selectedMaterialId ||
+      !quiz?.questions?.length
+    ) {
+      return true;
+    }
+
+    setQuizAnalyticsLoading(true);
+    setQuizAnalyticsError("");
+
+    try {
+      const finalScore = quizScoreRef.current;
+      const totalQuestions = quiz.questions.length;
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/analytics/quiz-attempt`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            material_id: Number(selectedMaterialId),
+            score: finalScore,
+            total: totalQuestions,
+            difficulty,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        let errorMessage =
+          "Failed to record quiz analytics.";
+
+        try {
+          const errorData = await response.json();
+
+          if (errorData?.detail) {
+            errorMessage = errorData.detail;
+          }
+        } catch {
+          // Keep default error.
+        }
+
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+
+      console.log(
+        "Quiz analytics recorded successfully:",
+        data
+      );
+
+      quizAnalyticsRecordedRef.current = true;
+
+      return true;
+    } catch (error) {
+      console.error(
+        "Error recording quiz analytics:",
+        error
+      );
+
+      setQuizAnalyticsError(
+        error.message ||
+          "Unable to save your quiz result."
+      );
+
+      return false;
+    } finally {
+      setQuizAnalyticsLoading(false);
+    }
   };
 
   // --------------------------------------------------
@@ -174,6 +271,7 @@ export default function Quiz() {
 
     setQuizLoading(true);
     setQuizError("");
+    setQuizAnalyticsError("");
 
     resetQuizState();
 
@@ -268,18 +366,25 @@ export default function Quiz() {
       currentQuestion.correct_answer;
 
     if (isCorrect) {
-      setScore((previousScore) => previousScore + 1);
+      const nextScore =
+        quizScoreRef.current + 1;
+
+      quizScoreRef.current = nextScore;
+      setScore(nextScore);
     }
 
     setSubmitted(true);
   };
 
   // --------------------------------------------------
-  // Next question
+  // Next question / finish quiz
   // --------------------------------------------------
 
-  const handleNextQuestion = () => {
-    if (!quiz?.questions) {
+  const handleNextQuestion = async () => {
+    if (
+      !quiz?.questions ||
+      quizAnalyticsLoading
+    ) {
       return;
     }
 
@@ -288,6 +393,13 @@ export default function Quiz() {
       quiz.questions.length - 1;
 
     if (isLastQuestion) {
+      const analyticsSaved =
+        await recordQuizAnalytics();
+
+      if (!analyticsSaved) {
+        return;
+      }
+
       setCompleted(true);
       return;
     }
@@ -487,7 +599,7 @@ export default function Quiz() {
               <div className="mt-8 flex flex-wrap justify-center gap-3">
                 <button
                   onClick={handleRetryQuiz}
-                  disabled={quizLoading}
+                  disabled={quizLoading || quizAnalyticsLoading}
                   className="flex items-center gap-2 rounded-xl bg-[#2FA084] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {quizLoading ? (
@@ -506,21 +618,27 @@ export default function Quiz() {
 
                 <button
                   onClick={handleDone}
-                  disabled={quizLoading}
+                  disabled={quizLoading || quizAnalyticsLoading}
                   className="rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-600 transition hover:border-[#6FCF97] hover:text-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Done
                 </button>
               </div>
 
-              {quizError && (
+              {quizAnalyticsError && (
                 <div className="mx-auto mt-6 flex max-w-lg items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-left text-sm text-red-600">
                   <AlertCircle
                     size={17}
                     className="mt-0.5 shrink-0"
                   />
-                  <span>{quizError}</span>
+                  <span>{quizAnalyticsError}</span>
                 </div>
+              )}
+
+              {quizAnalyticsRecordedRef.current && (
+                <p className="mt-4 text-xs font-medium text-[#2FA084]">
+                  Quiz result saved to Learning Analytics.
+                </p>
               )}
             </div>
           </div>
@@ -769,7 +887,9 @@ export default function Quiz() {
               {/* Bottom Actions */}
               <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-xs text-gray-400">
-                  {submitted
+                  {quizAnalyticsLoading
+                    ? "Saving your quiz result..."
+                    : submitted
                     ? "Review the explanation before continuing."
                     : "Select one answer to continue."}
                 </div>
@@ -786,17 +906,51 @@ export default function Quiz() {
                 ) : (
                   <button
                     onClick={handleNextQuestion}
-                    className="flex items-center justify-center gap-2 rounded-xl bg-[#2FA084] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1F6F5F]"
+                    disabled={quizAnalyticsLoading}
+                    className="flex items-center justify-center gap-2 rounded-xl bg-[#2FA084] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {questionNumber ===
-                    totalQuestions
-                      ? "See Results"
-                      : "Next Question"}
+                    {quizAnalyticsLoading ? (
+                      <>
+                        <Loader2
+                          size={17}
+                          className="animate-spin"
+                        />
+                        Saving Result...
+                      </>
+                    ) : (
+                      <>
+                        {questionNumber ===
+                        totalQuestions
+                          ? "See Results"
+                          : "Next Question"}
 
-                    <ArrowRight size={17} />
+                        <ArrowRight size={17} />
+                      </>
+                    )}
                   </button>
                 )}
               </div>
+
+              {quizAnalyticsError && (
+                <div className="mt-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                  <AlertCircle
+                    size={17}
+                    className="mt-0.5 shrink-0"
+                  />
+
+                  <div>
+                    <p className="font-semibold">
+                      Your quiz result could not be saved.
+                    </p>
+                    <p className="mt-1">
+                      {quizAnalyticsError}
+                    </p>
+                    <p className="mt-1 text-xs text-red-500">
+                      Click the result button again to retry.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

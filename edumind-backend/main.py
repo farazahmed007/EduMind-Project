@@ -2,13 +2,26 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.materials import router as materials_router
+from api.analytics import router as analytics_router
+
 from core.database import Base, engine
+
 from models.material import Material
+from models.analytics import AnalyticsEvent
 
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+# ==================================================
+# CREATE DATABASE TABLES
+# ==================================================
 
+Base.metadata.create_all(
+    bind=engine
+)
+
+
+# ==================================================
+# FASTAPI APPLICATION
+# ==================================================
 
 app = FastAPI(
     title="EduMind API",
@@ -17,7 +30,10 @@ app = FastAPI(
 )
 
 
-# Allow requests from the EduMind React frontend
+# ==================================================
+# CORS
+# ==================================================
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -30,8 +46,22 @@ app.add_middleware(
 )
 
 
-app.include_router(materials_router)
+# ==================================================
+# ROUTERS
+# ==================================================
 
+app.include_router(
+    materials_router
+)
+
+app.include_router(
+    analytics_router
+)
+
+
+# ==================================================
+# ROOT
+# ==================================================
 
 @app.get("/")
 def root():
@@ -39,6 +69,10 @@ def root():
         "message": "EduMind API is running 🚀"
     }
 
+
+# ==================================================
+# HEALTH CHECK
+# ==================================================
 
 @app.get("/api/health")
 def health_check():

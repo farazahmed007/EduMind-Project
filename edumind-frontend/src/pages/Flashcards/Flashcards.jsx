@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Layers3,
   Sparkles,
@@ -22,6 +22,7 @@ export default function Flashcards() {
   const [selectedMaterialId, setSelectedMaterialId] = useState("");
   const [numCards, setNumCards] = useState(5);
   const [difficulty, setDifficulty] = useState("medium");
+  const analyticsRecordedRef = useRef(false);
 
   const [flashcards, setFlashcards] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -97,6 +98,50 @@ export default function Flashcards() {
       : 0;
 
   // --------------------------------------------------
+  // Record completed flashcard session for Analytics
+  // --------------------------------------------------
+  const recordFlashcardAnalytics = async (cardsReviewed) => {
+    if (analyticsRecordedRef.current) {
+      return;
+    }
+
+    analyticsRecordedRef.current = true;
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/analytics/flashcard-session`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            material_id: Number(selectedMaterialId),
+            cards_reviewed: Number(cardsReviewed),
+            difficulty,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          "Failed to record flashcard analytics."
+        );
+      }
+
+      console.log(
+        "Flashcard analytics recorded successfully."
+      );
+    } catch (error) {
+      console.error(
+        "Error recording flashcard analytics:",
+        error
+      );
+      analyticsRecordedRef.current = false;
+    }
+  };
+
+  // --------------------------------------------------
   // Generate flashcards
   // --------------------------------------------------
   const handleGenerateFlashcards = async () => {
@@ -106,6 +151,7 @@ export default function Flashcards() {
 
     setGenerationLoading(true);
     setGenerationError("");
+    analyticsRecordedRef.current = false;
     setFlashcards([]);
     setCurrentIndex(0);
     setRevealed(false);
@@ -188,6 +234,12 @@ export default function Flashcards() {
     }
 
     setRevealed(true);
+
+    if (currentIndex === flashcards.length - 1) {
+      void recordFlashcardAnalytics(
+        flashcards.length
+      );
+    }
   };
 
   // --------------------------------------------------
