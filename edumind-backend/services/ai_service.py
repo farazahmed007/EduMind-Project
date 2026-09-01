@@ -1042,33 +1042,46 @@ def are_similar_texts(
     threshold: float = 0.92,
 ) -> bool:
     """
-    Compare two quiz strings.
+    Compare two quiz strings without over-rejecting short conceptual labels.
+
+    Exact normalized matches are always considered duplicates. For longer
+    strings, SequenceMatcher is useful for catching genuine near-duplicates.
+    Very short phrases are only rejected when they are exactly the same or
+    extremely close, because short technical terms naturally share words.
     """
 
-    first_normalized = normalize_quiz_string(
-        first
-    )
-
-    second_normalized = normalize_quiz_string(
-        second
-    )
+    first_normalized = normalize_quiz_string(first)
+    second_normalized = normalize_quiz_string(second)
 
     if not first_normalized or not second_normalized:
-
         return False
 
     if first_normalized == second_normalized:
-
         return True
+
+    first_words = first_normalized.split()
+    second_words = second_normalized.split()
+
+    # Do not use an aggressive character-ratio check for very short phrases.
+    # For example, "Logical OR operation" and "Logical AND operation" are
+    # distinct answer choices even though they share most of their wording.
+    if min(len(first_normalized), len(second_normalized)) < 24:
+        return (
+            SequenceMatcher(
+                None,
+                first_normalized,
+                second_normalized,
+            ).ratio() >= 0.97
+        )
 
     return (
         SequenceMatcher(
             None,
             first_normalized,
             second_normalized,
-        ).ratio()
-        >= threshold
+        ).ratio() >= threshold
     )
+
 
 
 # ==================================================
@@ -1080,14 +1093,37 @@ def are_duplicate_questions(
     second: str,
 ) -> bool:
     """
-    Check if questions are semantically similar.
+    Detect genuine duplicate or near-duplicate quiz questions.
+
+    Exact normalized equality is always a duplicate. For paraphrases, use a
+    conservative similarity threshold so that questions about the same broad
+    subject are not incorrectly rejected merely because they share common
+    academic vocabulary.
     """
 
-    return are_similar_texts(
-        first,
-        second,
-        threshold=0.85,
+    first_normalized = normalize_quiz_string(first)
+    second_normalized = normalize_quiz_string(second)
+
+    if not first_normalized or not second_normalized:
+        return False
+
+    if first_normalized == second_normalized:
+        return True
+
+    # Only use fuzzy matching when the questions are reasonably long. Short
+    # questions can have high character similarity while testing different
+    # concepts.
+    if min(len(first_normalized), len(second_normalized)) < 36:
+        return False
+
+    return (
+        SequenceMatcher(
+            None,
+            first_normalized,
+            second_normalized,
+        ).ratio() >= 0.93
     )
+
 
 
 # ==================================================
@@ -1343,54 +1379,49 @@ def validate_option_quality(
     options: list[str],
 ) -> None:
     """
-    Validate answer options.
+    Validate answer options without falsely rejecting short technical terms.
     """
 
     normalized_options = [
-        normalize_quiz_string(
-            option
-        )
+        normalize_quiz_string(option)
         for option in options
     ]
 
-    if len(
-        set(normalized_options)
-    ) != len(options):
-
+    if len(set(normalized_options)) != len(options):
         raise RuntimeError(
             "Quiz question contains duplicate answer options."
         )
 
     for option in options:
-
-        if len(
-            normalize_quiz_string(
-                option
-            )
-        ) < 2:
-
+        if len(normalize_quiz_string(option)) < 2:
             raise RuntimeError(
                 "Quiz question contains an invalid answer option."
             )
 
-    for index in range(
-        len(options)
-    ):
+    for index in range(len(options)):
+        for other_index in range(index + 1, len(options)):
+            first = normalized_options[index]
+            second = normalized_options[other_index]
 
-        for other_index in range(
-            index + 1,
-            len(options),
-        ):
+            if not first or not second:
+                continue
+
+            # Exact duplicates were already handled above. Short conceptual
+            # answers such as "Implication", "Disjunction", "Conjunction",
+            # and "Negation" should not be rejected merely because they share
+            # a few characters.
+            if min(len(first), len(second)) < 24:
+                continue
 
             if are_similar_texts(
                 options[index],
                 options[other_index],
-                threshold=0.92,
+                threshold=0.95,
             ):
-
                 raise RuntimeError(
                     "Quiz question contains nearly identical options."
                 )
+
 
 
 # ==================================================
@@ -1591,112 +1622,61 @@ def validate_single_quiz_question(
     item,
 ) -> dict:
     """
-    Validate a single generated quiz question.
+    Validate the structural shape of a generated quiz candidate.
+
+    The generator's answer is deliberately not trusted. Correctness is
+    determined independently after structural validation.
     """
 
-    if not isinstance(
-        item,
-        dict,
-    ):
-
+    if not isinstance(item, dict):
         raise RuntimeError(
             "AI quiz response is not a valid question object."
         )
 
     question = str(
-        item.get(
-            "question",
-            "",
-        )
+        item.get("question", "")
     ).strip()
 
-    options = item.get(
-        "options"
-    )
-
-    correct_answer_raw = str(
-        item.get(
-            "correct_answer",
-            "",
-        )
-    ).strip()
-
-    explanation = str(
-        item.get(
-            "explanation",
-            "",
-        )
-    ).strip()
+    options = item.get("options")
 
     if not question:
-
         raise RuntimeError(
             "Quiz question has no question text."
         )
 
-    if not isinstance(
-        options,
-        list,
-    ):
-
+    if not isinstance(options, list):
         raise RuntimeError(
             "Quiz question options must be a list."
         )
 
     cleaned_options = [
-        clean_option_text(
-            str(option)
-        )
+        clean_option_text(str(option))
         for option in options
         if str(option).strip()
     ]
 
-    if len(
-        cleaned_options
-    ) != 4:
-
+    if len(cleaned_options) != 4:
         raise RuntimeError(
             "Quiz question must have exactly 4 options."
         )
 
-    validate_option_quality(
-        cleaned_options
-    )
+    validate_option_quality(cleaned_options)
 
     if is_malformed_truth_table_question(
         question,
         cleaned_options,
     ):
-
         raise RuntimeError(
             "Quiz question is a malformed truth-table question."
-        )
-
-    correct_answer = match_correct_answer(
-        correct_answer_raw,
-        cleaned_options,
-    )
-
-    if not correct_answer:
-
-        raise RuntimeError(
-            "Quiz question has a correct answer "
-            f"that does not match any option: "
-            f"{correct_answer_raw}"
-        )
-
-    if not explanation:
-
-        raise RuntimeError(
-            "Quiz question has no explanation."
         )
 
     return {
         "question": question,
         "options": cleaned_options,
-        "correct_answer": correct_answer,
-        "explanation": explanation,
+        "correct_answer": "",
+        "explanation": "",
     }
+
 
 
 # ==================================================
@@ -1712,158 +1692,97 @@ def build_single_quiz_prompt(
     retry: bool = False,
 ) -> str:
     """
-    Build the prompt for one quiz question.
+    Build a prompt that asks the small local model to generate only a clean
+    MCQ candidate. Answer selection and explanation generation happen later.
     """
 
-    if previous_questions:
-
-        previous_questions_text = "\n".join(
+    previous_questions_text = (
+        "\n".join(
             f"{index}. {question}"
             for index, question in enumerate(
                 previous_questions,
                 start=1,
             )
         )
+        if previous_questions
+        else "None."
+    )
 
-    else:
-
-        previous_questions_text = (
-            "No questions have been generated yet."
-        )
-
-    if rejected_questions:
-
-        rejected_questions_text = "\n".join(
+    rejected_questions_text = (
+        "\n".join(
             f"{index}. {question}"
             for index, question in enumerate(
-                rejected_questions[-12:],
+                rejected_questions[-8:],
                 start=1,
             )
         )
+        if rejected_questions
+        else "None."
+    )
 
-    else:
-
-        rejected_questions_text = (
-            "No previously rejected questions."
-        )
-
-    retry_instruction = ""
-
-    if retry:
-
-        retry_instruction = """
-This is a retry because the previous response was
-invalid.
-
-Generate a completely new question.
-
-Double-check every JSON field before responding.
+    retry_instruction = (
+        """
+This is a retry.
+Generate a different question from a different fact or concept.
 """
+        if retry
+        else ""
+    )
 
     return f"""
 You are EduMind, an MCA quiz generator.
 
-Generate EXACTLY ONE multiple-choice question using
-ONLY the supplied study material.
+Create ONE clean multiple-choice question from ONLY the STUDY MATERIAL.
 
-Question number:
-{question_number}
-
-Difficulty:
-{difficulty}
+Question number: {question_number}
+Difficulty: {difficulty}
 
 {retry_instruction}
 
---------------------------------------------------
-PREVIOUSLY ACCEPTED QUESTIONS
---------------------------------------------------
-
+ALREADY ACCEPTED QUESTIONS:
 {previous_questions_text}
 
-Do NOT repeat any question above.
-
-Do NOT merely reword a previous question.
-
-Choose a DIFFERENT meaningful concept from the
-study material whenever possible.
-
---------------------------------------------------
-PREVIOUSLY REJECTED QUESTIONS
---------------------------------------------------
-
+REJECTED QUESTIONS:
 {rejected_questions_text}
 
-These questions were rejected because they were incorrect,
-duplicates, ambiguous, poorly constructed, or otherwise invalid.
-Do NOT generate any of them again.
-Do NOT generate a close paraphrase of them.
-Choose a genuinely different concept or angle.
+Do not repeat, paraphrase, or imitate any accepted or rejected question.
 
---------------------------------------------------
-DOCUMENT CONTEXT
---------------------------------------------------
+QUESTION QUALITY:
+- Test exactly ONE fact, definition, relationship, example, or application.
+- The question must be directly answerable from the study material.
+- Create exactly 4 options.
+- Every option must answer the same question.
+- Exactly one option should be the best answer.
+- Wrong options must be clearly wrong for THIS question.
+- Do not use "Both", "Neither", "All of the above", or "None of the above".
+- Do not create two options that could both reasonably be correct.
+- Do not mix definitions of different concepts.
+- Do not invent facts.
+- Keep options short and comparable.
+- Do not include the answer text inside the question.
+- Do not use Markdown.
 
+IMPORTANT:
+Do NOT generate a correct_answer field.
+Do NOT generate an explanation field.
+The answer will be independently determined later.
+
+STUDY MATERIAL:
 {document_context}
 
---------------------------------------------------
-QUESTION RULES
---------------------------------------------------
-
-1. The question must be answerable from the document.
-2. Do not invent facts.
-3. Create exactly 4 options.
-4. Every option must be a different string.
-5. Exactly one clearly correct answer.
-6. All distractors must be incorrect in the context of the question.
-7. Include an explanation that directly justifies the selected answer.
-8. Avoid malformed truth-table questions.
-9. Do not use Markdown.
-10. Every option must answer the same question and be comparable.
-11. Do not create reversed-pair options where one is simply the opposite meaning of another unless the question explicitly tests that distinction.
-12. Do not construct options that contradict the question framing.
-13. No "Both" or "Neither" unless the document clearly requires them.
-14. Do not create questions where the explanation supports one option but another option is equally valid.
-
---------------------------------------------------
-IMPORTANT JSON RULES
---------------------------------------------------
-
-Return ONE JSON OBJECT.
-
-The JSON object MUST contain exactly these fields:
-
-"question"
-"options"
-"correct_answer"
-"explanation"
-
-"options" MUST be an array containing exactly 4 strings.
-
-"correct_answer" MUST BE A SINGLE LETTER:
-"A", "B", "C", or "D".
-
-Do not write the full text of the option.
-
-Include commas between all JSON array elements.
-
-Do NOT write anything outside the JSON object.
-
-Example:
+RETURN ONLY THIS JSON:
 
 {{
   "question": "Question text",
   "options": [
-    "First option",
-    "Second option",
-    "Third option",
-    "Fourth option"
-  ],
-  "correct_answer": "B",
-  "explanation": "The second option is correct because..."
+    "Option A",
+    "Option B",
+    "Option C",
+    "Option D"
+  ]
 }}
-
-Return JSON only.
 """
+
 
 
 # ==================================================
@@ -2037,34 +1956,15 @@ def verify_quiz_question(
     document_context: str,
 ) -> tuple[str, bool]:
     """
-    Independently verify the answer to a generated MCQ.
+    Independently determine whether a generated MCQ is well-formed and select
+    the best-supported correct option.
 
-    The verifier is deliberately simple for llama3.2:3b:
-
-    1. Ignore the model's generated answer.
-    2. Read the question, four options, and document.
-    3. Pick the BEST supported option.
-    4. Return A/B/C/D only.
-    5. Separately report whether the generated explanation is
-       consistent with that verified option.
-
-    There is intentionally no UNSURE success path. If the verifier
-    cannot provide a valid A/B/C/D result, the Python validator rejects
-    the candidate and the generator retries it.
+    The generator's proposed answer and explanation are intentionally ignored.
     """
 
     if len(options) != 4:
         raise RuntimeError(
             "Quiz correctness verification requires exactly 4 options."
-        )
-
-    generated_letter = normalize_answer_letter(
-        generated_correct_answer
-    )
-
-    if not generated_letter:
-        raise RuntimeError(
-            "Generated correct answer is not a valid A/B/C/D option."
         )
 
     labeled_options = "\n".join(
@@ -2073,19 +1973,38 @@ def verify_quiz_question(
     )
 
     verifier_prompt = f"""
-You are EduMind's quiz answer verifier.
+You are EduMind's final MCQ checker.
 
-Choose the ONE best answer to the question using ONLY the STUDY MATERIAL.
+Use ONLY the STUDY MATERIAL.
 
-IMPORTANT:
-- Ignore the generated answer completely.
-- Ignore the generated explanation when deciding the answer.
-- Do not use outside knowledge unless it is also supported by the study material.
-- Compare meanings, not exact wording.
-- Answer the actual question, not a related question.
-- Choose the single option that best matches the document.
-- Do NOT return UNSURE.
-- You MUST return exactly one of: A, B, C, D.
+First decide whether the QUESTION has one clear best answer among A, B, C, D.
+Then select that best answer.
+
+Rules:
+- Ignore any previously proposed answer.
+- Ignore any explanation.
+- Do not use outside knowledge.
+- Compare meaning, not exact wording.
+- The answer must actually answer the question asked.
+- Reject the question if two options are genuinely defensible.
+- Reject the question if none of the options answers the question.
+- Reject the question if the options are malformed or the question is broken.
+- A normal example that is explicitly supported by the material is valid.
+
+For a valid question return:
+{{
+  "valid": true,
+  "correct_option": "A"
+}}
+
+For an invalid or ambiguous question return:
+{{
+  "valid": false,
+  "correct_option": "A"
+}}
+
+Even when invalid, put the BEST candidate option in correct_option.
+correct_option must always be exactly A, B, C, or D.
 
 STUDY MATERIAL:
 {document_context}
@@ -2096,19 +2015,14 @@ QUESTION:
 OPTIONS:
 {labeled_options}
 
-Return ONLY this JSON:
-{{
-  "correct_option": "A"
-}}
+Return JSON only.
 """
 
-    raw_response = ask_ai(
-        verifier_prompt,
-        json_mode=True,
-    )
-
     result = _extract_json_object_from_text(
-        raw_response
+        ask_ai(
+            verifier_prompt,
+            json_mode=True,
+        )
     )
 
     if not isinstance(result, dict):
@@ -2116,18 +2030,17 @@ Return ONLY this JSON:
             "Quiz verifier did not return a valid JSON object."
         )
 
-    raw_verified = str(
-        result.get(
-            "correct_option",
-            result.get(
-                "verified_correct_option",
-                "",
-            ),
+    valid_value = _coerce_boolean(
+        result.get("valid")
+    )
+
+    if valid_value is None:
+        raise RuntimeError(
+            "Quiz verifier returned an invalid validity flag."
         )
-    ).strip()
 
     verified_letter = normalize_answer_letter(
-        raw_verified
+        result.get("correct_option", "")
     )
 
     if verified_letter is None:
@@ -2135,74 +2048,70 @@ Return ONLY this JSON:
             "Quiz verifier returned an invalid correct option."
         )
 
-    # --------------------------------------------------
-    # Separate explanation consistency check.
-    # --------------------------------------------------
-
-    verified_index = (
-        ord(verified_letter) - ord("A")
-    )
-
-    verified_option_text = options[verified_index]
-
-    explanation_prompt = f"""
-You are checking whether a quiz explanation is consistent.
-
-Use ONLY the study material.
-
-QUESTION:
-{question}
-
-VERIFIED CORRECT OPTION:
-{verified_letter}. {verified_option_text}
-
-EXPLANATION:
-{explanation}
-
-STUDY MATERIAL:
-{document_context}
-
-Is the explanation consistent with the verified correct option?
-Return ONLY this JSON:
-{{
-  "explanation_consistent": true
-}}
-"""
-
-    raw_explanation_response = ask_ai(
-        explanation_prompt,
-        json_mode=True,
-    )
-
-    explanation_result = _extract_json_object_from_text(
-        raw_explanation_response
-    )
-
-    if not isinstance(explanation_result, dict):
+    if not valid_value:
         raise RuntimeError(
-            "Quiz explanation verifier did not return valid JSON."
+            "Quiz verifier rejected the question as invalid or ambiguous."
         )
 
-    explanation_consistent = _coerce_boolean(
-        explanation_result.get(
-            "explanation_consistent"
-        )
-    )
+    return verified_letter, True
 
-    if explanation_consistent is None:
-        raise RuntimeError(
-            "Quiz explanation verifier returned an invalid boolean."
-        )
-
-    return (
-        verified_letter,
-        explanation_consistent,
-    )
 
 
 # ==================================================
 # GENERATE ONE QUIZ QUESTION
 # ==================================================
+
+def generate_quiz_explanation(
+    question: str,
+    correct_option: str,
+    options: list[str],
+    document_context: str,
+) -> str:
+    """
+    Generate a short explanation only after the correct option has been
+    independently verified.
+    """
+
+    index = ord(correct_option) - ord("A")
+
+    if not 0 <= index < len(options):
+        raise RuntimeError(
+            "Verified quiz answer is outside the available options."
+        )
+
+    correct_text = options[index]
+
+    prompt = f"""
+You are EduMind.
+
+Write a short explanation for this quiz question.
+
+Use ONLY the STUDY MATERIAL.
+The verified correct option is fixed. Do not change it.
+Explain why the verified option answers the question.
+Do not say another option is correct.
+Do not invent facts.
+Do not mention the prompt, verification, or Ollama.
+Use 1 or 2 clear sentences.
+
+QUESTION:
+{question}
+
+VERIFIED CORRECT OPTION:
+{correct_option}. {correct_text}
+
+STUDY MATERIAL:
+{document_context}
+"""
+
+    explanation = ask_ai(prompt).strip()
+
+    if not explanation:
+        raise RuntimeError(
+            "AI quiz explanation was empty."
+        )
+
+    return explanation
 
 def generate_single_quiz_question(
     document_context: str,
@@ -2210,28 +2119,30 @@ def generate_single_quiz_question(
     question_number: int,
     previous_questions: list[str],
     rejected_questions: list[str],
+    alternative_contexts: list[str] | None = None,
 ) -> dict:
     """
-    Generate and validate one question.
+    Generate one MCQ candidate, independently verify its correct option, then
+    generate the explanation from the verified answer.
 
-    Three attempts are allowed.
+    A maximum of three attempts is made. When alternative_contexts are
+    supplied, retries use a different source-context window so a small local
+    model does not get trapped generating the same concept repeatedly.
     """
 
     last_error = None
+    contexts = alternative_contexts or [document_context]
 
-    for attempt in range(
-        1,
-        4,
-    ):
-
+    for attempt in range(1, 4):
         print(
             f"Question {question_number}: "
-            f"generation + verification attempt "
-            f"{attempt}/3..."
+            f"generation + verification attempt {attempt}/3..."
         )
 
+        attempt_context = contexts[(attempt - 1) % len(contexts)]
+
         prompt = build_single_quiz_prompt(
-            document_context=document_context,
+            document_context=attempt_context,
             difficulty=difficulty,
             question_number=question_number,
             previous_questions=previous_questions,
@@ -2244,160 +2155,114 @@ def generate_single_quiz_question(
         validated_question = None
 
         try:
-
             raw_response = ask_ai(
                 prompt,
                 json_mode=True,
             )
 
-            question_data = (
-                extract_single_quiz_question(
-                    raw_response
-                )
+            question_data = extract_single_quiz_question(
+                raw_response
             )
 
-            validated_question = (
-                validate_single_quiz_question(
-                    question_data
-                )
+            validated_question = validate_single_quiz_question(
+                question_data
             )
 
-            # --------------------------------------------------
-            # Independent correctness verification
-            # --------------------------------------------------
-
-            generated_answer_letter = normalize_answer_letter(
-                question_data.get(
-                    "correct_answer",
-                    "",
-                )
-            )
-
-            if not generated_answer_letter:
-                raise RuntimeError(
-                    "Generated correct answer is not a valid A/B/C/D option."
-                )
-
-            generated_answer_index = (
-                ord(generated_answer_letter) - ord("A")
-            )
-
-            generated_answer_text = validated_question[
-                "options"
-            ][generated_answer_index]
-
-            print(
-                f"Question {question_number}: "
-                f"generated correct option = "
-                f"{generated_answer_letter}"
-            )
-
-            verified_answer_letter, explanation_consistent = (
-                verify_quiz_question(
-                    question=validated_question["question"],
-                    options=validated_question["options"],
-                    generated_correct_answer=generated_answer_letter,
-                    explanation=validated_question["explanation"],
-                    document_context=document_context,
-                )
-            )
-
-            print(
-                f"Question {question_number}: "
-                f"verified correct option = "
-                f"{verified_answer_letter}"
-            )
-
-            if generated_answer_letter != verified_answer_letter:
-                raise RuntimeError(
-                    "Generated correct answer failed document verification: "
-                    f"generated={generated_answer_letter}, "
-                    f"verified={verified_answer_letter}"
-                )
-
-            if not explanation_consistent:
-                raise RuntimeError(
-                    "Generated explanation is inconsistent with the verified answer."
-                )
-
-            # Store the verified option text rather than the model's
-            # raw answer token. This keeps the API compatible with
-            # the React quiz UI and guarantees the answer is one of
-            # the returned option strings.
-            validated_question["correct_answer"] = generated_answer_text
-
-            print(
-                f"Question {question_number}: "
-                "answer and explanation verification passed."
-            )
+            candidate_question = validated_question["question"]
 
             for previous_question in previous_questions:
-
                 if are_duplicate_questions(
-                    validated_question["question"],
+                    candidate_question,
                     previous_question,
                 ):
-
                     raise RuntimeError(
-                        "Generated question is an exact "
-                        "duplicate of an earlier question."
+                        "Generated question is a duplicate or near-duplicate "
+                        "of an earlier question."
                     )
+
+            for rejected_question in rejected_questions:
+                if are_duplicate_questions(
+                    candidate_question,
+                    rejected_question,
+                ):
+                    raise RuntimeError(
+                        "Generated question repeats a previously rejected "
+                        "question."
+                    )
+
+            verified_answer_letter, _ = verify_quiz_question(
+                question=candidate_question,
+                options=validated_question["options"],
+                generated_correct_answer="",
+                explanation="",
+                document_context=attempt_context,
+            )
+
+            verified_answer_index = ord(verified_answer_letter) - ord("A")
+            verified_answer_text = validated_question["options"][verified_answer_index]
 
             print(
                 f"Question {question_number}: "
-                f"generation succeeded on attempt "
-                f"{attempt}."
+                f"verified correct option = {verified_answer_letter}"
+            )
+
+            explanation = generate_quiz_explanation(
+                question=candidate_question,
+                correct_option=verified_answer_letter,
+                options=validated_question["options"],
+                document_context=attempt_context,
+            )
+
+            validated_question["correct_answer"] = verified_answer_text
+            validated_question["explanation"] = explanation
+
+            normalized_explanation = normalize_quiz_string(explanation)
+            normalized_answer_text = normalize_quiz_string(verified_answer_text)
+
+            if (
+                normalized_answer_text
+                and normalized_answer_text not in normalized_explanation
+                and verified_answer_letter.lower() not in normalized_explanation
+            ):
+                validated_question["explanation"] = generate_quiz_explanation(
+                    question=candidate_question,
+                    correct_option=verified_answer_letter,
+                    options=validated_question["options"],
+                    document_context=attempt_context,
+                )
+
+            print(
+                f"Question {question_number}: "
+                "question, answer, and explanation verification passed."
+            )
+
+            print(
+                f"Question {question_number}: "
+                f"generation succeeded on attempt {attempt}."
             )
 
             return validated_question
 
         except Exception as error:
-
             last_error = error
 
-            # Remember rejected candidates so later attempts do not
-            # keep circling back to the same bad question.
-            try:
-                rejected_candidate = None
+            rejected_candidate = None
 
-                if isinstance(
-                    locals().get("question_data"),
-                    dict,
-                ):
-                    rejected_candidate = str(
-                        question_data.get(
-                            "question",
-                            "",
-                        )
-                    ).strip()
+            if isinstance(question_data, dict):
+                rejected_candidate = str(
+                    question_data.get("question", "")
+                ).strip()
 
-                if not rejected_candidate and isinstance(
-                    locals().get("validated_question"),
-                    dict,
-                ):
-                    rejected_candidate = str(
-                        validated_question.get(
-                            "question",
-                            "",
-                        )
-                    ).strip()
+            if not rejected_candidate and isinstance(validated_question, dict):
+                rejected_candidate = str(
+                    validated_question.get("question", "")
+                ).strip()
 
-                if rejected_candidate and not any(
-                    are_duplicate_questions(
-                        rejected_candidate,
-                        previous_question,
-                    )
-                    for previous_question in rejected_questions
-                ):
-                    rejected_questions.append(
-                        rejected_candidate
-                    )
-
-            except Exception as rejection_tracking_error:
-                print(
-                    "Quiz rejected-question tracking error:",
-                    rejection_tracking_error,
-                )
+            if rejected_candidate and not any(
+                are_duplicate_questions(rejected_candidate, existing)
+                for existing in rejected_questions
+            ):
+                rejected_questions.append(rejected_candidate)
 
             print(
                 f"Question {question_number}: "
@@ -2406,17 +2271,12 @@ def generate_single_quiz_question(
             )
 
             if raw_response is not None:
-
                 print(
                     "\n"
                     "================ RAW OLLAMA QUIZ RESPONSE "
                     "================"
                 )
-
-                print(
-                    raw_response
-                )
-
+                print(raw_response)
                 print(
                     "================ END RAW OLLAMA RESPONSE "
                     "================\n"
@@ -2429,6 +2289,112 @@ def generate_single_quiz_question(
     )
 
 
+
+
+# ==================================================
+# QUIZ CONTEXT DIVERSITY HELPERS
+# ==================================================
+
+QUIZ_STOPWORDS = {
+    "the", "a", "an", "and", "or", "but", "if", "then", "than",
+    "that", "this", "these", "those", "is", "are", "was", "were",
+    "be", "been", "being", "of", "to", "in", "on", "for", "from",
+    "with", "by", "as", "at", "into", "through", "about", "over",
+    "under", "between", "what", "which", "who", "where", "when",
+    "why", "how", "type", "kind", "term", "meaning", "main", "primary",
+    "following", "used", "use", "using", "deal", "deals", "dealing",
+    "values", "value", "structure", "structures", "question", "according",
+    "document", "study", "material", "example", "examples", "such", "can",
+    "may", "does", "do", "their", "they", "them", "its", "it", "one",
+    "two", "four", "each", "all", "only", "also", "called", "defined",
+    "definition", "describe", "describes", "best", "correct", "answer",
+}
+
+
+def quiz_content_keywords(text: str) -> set[str]:
+    """
+    Extract meaningful words for deterministic topic/context diversity.
+
+    This is deliberately lightweight and does not attempt semantic embedding.
+    It exists only to keep a small local model from repeatedly seeing contexts
+    dominated by concepts already used in accepted questions.
+    """
+    words = re.findall(r"\b[a-zA-Z][a-zA-Z0-9]{2,}\b", str(text).lower())
+    return {
+        word
+        for word in words
+        if word not in QUIZ_STOPWORDS
+    }
+
+
+def quiz_question_context_overlap(
+    context: str,
+    questions: list[str],
+) -> int:
+    """
+    Count meaningful keyword overlap between a context and accepted questions.
+    Lower scores mean the context is more likely to contain a fresh concept.
+    """
+    context_words = quiz_content_keywords(context)
+
+    if not context_words or not questions:
+        return 0
+
+    used_words = set()
+    for question in questions:
+        used_words.update(
+            quiz_content_keywords(question)
+        )
+
+    return len(context_words.intersection(used_words))
+
+
+def choose_diverse_quiz_contexts(
+    context_windows: list[str],
+    accepted_questions: list[str],
+    primary_index: int,
+    count: int = 3,
+) -> list[str]:
+    """
+    Rank candidate context windows by how little their content overlaps with
+    already accepted question topics, while keeping the requested primary
+    window first.
+    """
+    if not context_windows:
+        return []
+
+    primary = context_windows[primary_index % len(context_windows)]
+
+    scored = []
+    for index, context in enumerate(context_windows):
+        overlap = quiz_question_context_overlap(
+            context,
+            accepted_questions,
+        )
+        distance = abs(index - primary_index)
+        scored.append((
+            overlap,
+            0 if index == primary_index else 1,
+            distance,
+            index,
+            context,
+        ))
+
+    scored.sort(key=lambda item: item[:4])
+
+    ordered = [primary]
+    for _, _, _, _, context in scored:
+        if context == primary:
+            continue
+        if context in ordered:
+            continue
+        ordered.append(context)
+        if len(ordered) >= max(1, count):
+            break
+
+    return ordered
+
+
 # ==================================================
 # GENERATE QUIZ
 # ==================================================
@@ -2439,60 +2405,97 @@ def generate_quiz(
     difficulty: str = "medium",
 ) -> list[dict]:
     """
-    Generate a document-grounded quiz.
+    Generate a document-grounded quiz with deterministic context diversity.
 
-    Each question is generated independently while
-    seeing all previously accepted and previously rejected
-    questions so the model does not repeatedly circle back
-    to failed concepts or prompts.
+    The model still receives focused source windows, but each new question is
+    assigned a window whose content has the least overlap with already accepted
+    question topics. This prevents a small local model from repeatedly choosing
+    the most salient concept in the document.
     """
 
     if not retrieved_chunks:
-
         raise ValueError(
             "No document context is available for quiz generation."
         )
 
     if not 1 <= num_questions <= 20:
-
         raise ValueError(
             "Number of quiz questions must be between 1 and 20."
         )
 
     difficulty = difficulty.strip().lower()
-
-    if difficulty not in {
-        "easy",
-        "medium",
-        "hard",
-    }:
-
+    if difficulty not in {"easy", "medium", "hard"}:
         raise ValueError(
             "Difficulty must be easy, medium, or hard."
         )
 
     generated_questions = []
-
     previous_questions = []
-
     rejected_questions = []
 
-    for question_number in range(
-        1,
-        num_questions + 1,
-    ):
+    total_chunks = len(retrieved_chunks)
+    window_size = 2 if total_chunks > 1 else 1
 
-        print(
-            "\n"
-            f"Preparing question "
-            f"{question_number}/{num_questions}..."
+    starts = list(range(0, total_chunks, window_size))
+    starts += [
+        start
+        for start in range(1, total_chunks, window_size)
+        if start not in starts
+    ]
+
+    context_windows = []
+    for start in starts:
+        selected = [
+            retrieved_chunks[(start + offset) % total_chunks]
+            for offset in range(window_size)
+        ]
+        context_windows.append(
+            format_retrieved_context(selected)
         )
 
-        # Use the complete retrieved context for every question so the
-        # verifier and generator can see all relevant concepts.
-        # Diversity is enforced through accepted/rejected question memory.
-        document_context = format_retrieved_context(
-            retrieved_chunks
+    for question_number in range(1, num_questions + 1):
+        print(
+            "\n"
+            f"Preparing question {question_number}/{num_questions}..."
+        )
+
+        # Prefer the least-overlapping context with the concepts already tested.
+        ranked_contexts = []
+        for index, context in enumerate(context_windows):
+            overlap = quiz_question_context_overlap(
+                context,
+                previous_questions,
+            )
+            # Stable rotation gives later questions access to windows that have
+            # not already been the primary window for earlier questions.
+            rotation_distance = (
+                index - (question_number - 1)
+            ) % len(context_windows)
+            ranked_contexts.append((
+                overlap,
+                rotation_distance,
+                index,
+                context,
+            ))
+
+        ranked_contexts.sort(
+            key=lambda item: item[:3]
+        )
+
+        primary_index = ranked_contexts[0][2]
+        document_context = ranked_contexts[0][3]
+
+        alternative_contexts = choose_diverse_quiz_contexts(
+            context_windows=context_windows,
+            accepted_questions=previous_questions,
+            primary_index=primary_index,
+            count=min(3, len(context_windows)),
+        )
+
+        print(
+            f"Question {question_number}: "
+            f"selected context window {primary_index} "
+            f"using lowest topic overlap"
         )
 
         question = generate_single_quiz_question(
@@ -2501,15 +2504,11 @@ def generate_quiz(
             question_number=question_number,
             previous_questions=previous_questions,
             rejected_questions=rejected_questions,
+            alternative_contexts=alternative_contexts,
         )
 
-        generated_questions.append(
-            question
-        )
-
-        previous_questions.append(
-            question["question"]
-        )
+        generated_questions.append(question)
+        previous_questions.append(question["question"])
 
     print(
         "\n"
@@ -2518,7 +2517,6 @@ def generate_quiz(
     )
 
     return generated_questions
-
 
 # ==================================================
 # FLASHCARD TEXT NORMALIZATION
