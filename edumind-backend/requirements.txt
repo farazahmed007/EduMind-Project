@@ -27,3 +27,5 @@ typing-inspection==0.4.4
 typing_extensions==4.16.0
 tzdata==2026.3
 uvicorn==0.52.4
+PyJWT==2.13.0
+bcrypt==5.0.0
