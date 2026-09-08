@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Trophy,
 } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -133,6 +134,7 @@ function ScoreTrendChart({ data }) {
         ? width / 2
         : paddingX +
           (index / (data.length - 1)) * chartWidth;
+
     const y =
       paddingY +
       ((maxScore - item.score) / maxScore) * chartHeight;
@@ -173,6 +175,7 @@ function ScoreTrendChart({ data }) {
                   className="text-gray-200"
                   strokeWidth="1"
                 />
+
                 <text
                   x="8"
                   y={y + 4}
@@ -205,6 +208,7 @@ function ScoreTrendChart({ data }) {
                 fill="currentColor"
                 className="text-[#2FA084]"
               />
+
               <text
                 x={point.x}
                 y={height - 5}
@@ -222,6 +226,7 @@ function ScoreTrendChart({ data }) {
         <span>
           Quiz attempts: {data.length}
         </span>
+
         <span>
           1 = oldest • {data.length} = latest
         </span>
@@ -238,6 +243,7 @@ function MaterialPerformance({ data }) {
           size={30}
           className="mx-auto text-gray-300"
         />
+
         <p className="mt-3 text-sm font-medium text-gray-500">
           Material performance will appear after your first completed quiz.
         </p>
@@ -257,6 +263,7 @@ function MaterialPerformance({ data }) {
               <p className="truncate text-sm font-semibold text-gray-700">
                 {item.material_title}
               </p>
+
               <p className="mt-1 text-xs text-gray-400">
                 {item.attempts} quiz attempt
                 {item.attempts === 1 ? "" : "s"}
@@ -293,6 +300,7 @@ function RecentActivity({ activities }) {
           size={30}
           className="mx-auto text-gray-300"
         />
+
         <p className="mt-3 text-sm font-medium text-gray-500">
           Your learning activity will appear here.
         </p>
@@ -328,6 +336,7 @@ function RecentActivity({ activities }) {
               <p className="text-sm font-semibold text-gray-700">
                 {activity.title}
               </p>
+
               <p className="mt-1 truncate text-xs text-gray-400">
                 {activity.description}
               </p>
@@ -337,6 +346,7 @@ function RecentActivity({ activities }) {
               <p className="text-xs font-medium text-gray-400">
                 {formatRelativeDate(activity.date)}
               </p>
+
               {isQuiz && (
                 <p className="mt-1 text-sm font-bold text-[#1F6F5F]">
                   {activity.score}%
@@ -351,12 +361,18 @@ function RecentActivity({ activities }) {
 }
 
 export default function Analytics() {
+  const { token } = useAuth();
+
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const fetchAnalytics = async (showRefreshState = false) => {
+    if (!token) {
+      return;
+    }
+
     if (showRefreshState) {
       setRefreshing(true);
     } else {
@@ -367,10 +383,21 @@ export default function Analytics() {
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/analytics/`
+        `${API_BASE_URL}/api/analytics/`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
       );
 
       if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error(
+            "Your session has expired. Please log in again."
+          );
+        }
+
         throw new Error(
           "Failed to load learning analytics."
         );
@@ -402,8 +429,10 @@ export default function Analytics() {
   };
 
   useEffect(() => {
-    fetchAnalytics();
-  }, []);
+    if (token) {
+      fetchAnalytics();
+    }
+  }, [token]);
 
   const overview = analytics?.overview || {};
   const scoreTrend = analytics?.score_trend || [];
@@ -412,7 +441,9 @@ export default function Analytics() {
   const recentActivity = analytics?.recent_activity || [];
 
   const performanceMessage = useMemo(() => {
-    const score = Number(overview.average_quiz_score || 0);
+    const score = Number(
+      overview.average_quiz_score || 0
+    );
 
     if (!overview.quizzes_completed) {
       return "Complete your first quiz to start tracking performance.";
@@ -427,7 +458,10 @@ export default function Analytics() {
     }
 
     return "Use your quiz results to focus revision on weaker areas.";
-  }, [overview.average_quiz_score, overview.quizzes_completed]);
+  }, [
+    overview.average_quiz_score,
+    overview.quizzes_completed,
+  ]);
 
   if (loading) {
     return (
@@ -438,6 +472,7 @@ export default function Analytics() {
               size={30}
               className="mx-auto animate-spin text-[#2FA084]"
             />
+
             <p className="mt-4 text-sm text-gray-500">
               Loading your learning analytics...
             </p>
@@ -455,12 +490,15 @@ export default function Analytics() {
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-500">
               <Activity size={28} />
             </div>
+
             <h1 className="mt-5 text-xl font-bold text-gray-800">
               Unable to load analytics
             </h1>
+
             <p className="mx-auto mt-2 max-w-lg text-sm text-gray-500">
               {error}
             </p>
+
             <button
               onClick={() => fetchAnalytics()}
               className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#2FA084] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1F6F5F]"
@@ -489,6 +527,7 @@ export default function Analytics() {
                 <h1 className="text-2xl font-bold text-[#1F6F5F]">
                   Learning Analytics
                 </h1>
+
                 <p className="mt-1 text-sm text-gray-500">
                   Track your learning progress and identify where to focus next.
                 </p>
@@ -507,6 +546,7 @@ export default function Analytics() {
                 refreshing ? "animate-spin" : ""
               }
             />
+
             Refresh
           </button>
         </div>
@@ -557,6 +597,7 @@ export default function Analytics() {
                 <h2 className="text-lg font-semibold text-gray-800">
                   Quiz Performance Trend
                 </h2>
+
                 <p className="mt-1 text-sm text-gray-500">
                   Your recorded quiz scores over time.
                 </p>
@@ -577,6 +618,7 @@ export default function Analytics() {
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#6FCF97]/20 text-[#1F6F5F]">
                 <Brain size={18} />
               </div>
+
               <h2 className="text-lg font-semibold text-gray-800">
                 Learning Insight
               </h2>
@@ -593,6 +635,7 @@ export default function Analytics() {
                 <span className="text-gray-500">
                   Quiz attempts
                 </span>
+
                 <span className="font-semibold text-[#1F6F5F]">
                   {overview.quizzes_completed || 0}
                 </span>
@@ -602,6 +645,7 @@ export default function Analytics() {
                 <span className="text-gray-500">
                   Flashcards reviewed
                 </span>
+
                 <span className="font-semibold text-[#1F6F5F]">
                   {overview.flashcards_reviewed || 0}
                 </span>
@@ -611,6 +655,7 @@ export default function Analytics() {
                 <span className="text-gray-500">
                   Materials available
                 </span>
+
                 <span className="font-semibold text-[#1F6F5F]">
                   {overview.total_materials || 0}
                 </span>
@@ -625,10 +670,12 @@ export default function Analytics() {
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#6FCF97]/20 text-[#1F6F5F]">
               <BookOpen size={19} />
             </div>
+
             <div>
               <h2 className="text-lg font-semibold text-gray-800">
                 Performance by Material
               </h2>
+
               <p className="mt-1 text-sm text-gray-500">
                 See which study materials are performing strongest in quizzes.
               </p>
@@ -646,10 +693,12 @@ export default function Analytics() {
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#6FCF97]/20 text-[#1F6F5F]">
               <Clock3 size={19} />
             </div>
+
             <div>
               <h2 className="text-lg font-semibold text-gray-800">
                 Recent Activity
               </h2>
+
               <p className="mt-1 text-sm text-gray-500">
                 Your latest completed learning activities.
               </p>

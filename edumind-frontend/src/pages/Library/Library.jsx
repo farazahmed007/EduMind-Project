@@ -4,8 +4,11 @@ import LibraryHeader from "../../components/library/LibraryHeader";
 import LibraryToolbar from "../../components/library/LibraryToolbar";
 import LibraryTabs from "../../components/library/LibraryTabs";
 import MaterialGrid from "../../components/library/MaterialGrid";
+import { useAuth } from "../../context/AuthContext";
 
 function Library() {
+  const { token } = useAuth();
+
   const [uploadedMaterials, setUploadedMaterials] = useState([]);
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -19,13 +22,22 @@ function Library() {
    * Fetch materials from FastAPI
    */
   useEffect(() => {
+    if (!token) {
+      return;
+    }
+
     const fetchMaterials = async () => {
       try {
         setIsLoading(true);
         setError("");
 
         const response = await fetch(
-          "http://127.0.0.1:8000/api/materials/"
+          "http://127.0.0.1:8000/api/materials/",
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
         );
 
         if (!response.ok) {
@@ -47,7 +59,7 @@ function Library() {
     };
 
     fetchMaterials();
-  }, []);
+  }, [token]);
 
   /*
    * Upload material to FastAPI
@@ -73,6 +85,11 @@ function Library() {
         return false;
       }
 
+      if (!token) {
+        setError("You must be logged in to upload materials.");
+        return false;
+      }
+
       const formData = new FormData();
 
       formData.append("file", file);
@@ -81,6 +98,9 @@ function Library() {
         "http://127.0.0.1:8000/api/materials/",
         {
           method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
           body: formData,
         }
       );
@@ -154,10 +174,18 @@ function Library() {
     try {
       setError("");
 
+      if (!token) {
+        setError("You must be logged in to delete materials.");
+        return;
+      }
+
       const response = await fetch(
         `http://127.0.0.1:8000/api/materials/${id}`,
         {
           method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         }
       );
 
@@ -190,6 +218,11 @@ function Library() {
     try {
       setError("");
 
+      if (!token) {
+        setError("You must be logged in to rename materials.");
+        return;
+      }
+
       const params = new URLSearchParams({
         new_title: newTitle,
       });
@@ -198,6 +231,9 @@ function Library() {
         `http://127.0.0.1:8000/api/materials/${id}?${params.toString()}`,
         {
           method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         }
       );
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useAuth } from "../../context/AuthContext";
 
 import {
   AlertCircle,
@@ -35,41 +36,36 @@ const DIFFICULTIES = [
 ];
 
 export default function Quiz() {
+  const { token } = useAuth();
+
   // --------------------------------------------------
   // Materials
   // --------------------------------------------------
 
   const [materials, setMaterials] = useState([]);
-  const [materialsLoading, setMaterialsLoading] =
-    useState(true);
-  const [materialsError, setMaterialsError] =
-    useState("");
+  const [materialsLoading, setMaterialsLoading] = useState(true);
+  const [materialsError, setMaterialsError] = useState("");
 
-  const [selectedMaterialId, setSelectedMaterialId] =
-    useState("");
+  const [selectedMaterialId, setSelectedMaterialId] = useState("");
 
   // --------------------------------------------------
   // Quiz settings
   // --------------------------------------------------
 
   const [numQuestions, setNumQuestions] = useState(5);
-  const [difficulty, setDifficulty] =
-    useState("medium");
+  const [difficulty, setDifficulty] = useState("medium");
 
   // --------------------------------------------------
   // Quiz state
   // --------------------------------------------------
 
   const [quiz, setQuiz] = useState(null);
-  const [quizLoading, setQuizLoading] =
-    useState(false);
+  const [quizLoading, setQuizLoading] = useState(false);
   const [quizError, setQuizError] = useState("");
 
-  const [currentQuestionIndex, setCurrentQuestionIndex] =
-    useState(0);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
 
-  const [selectedAnswer, setSelectedAnswer] =
-    useState("");
+  const [selectedAnswer, setSelectedAnswer] = useState("");
 
   const [submitted, setSubmitted] = useState(false);
 
@@ -86,27 +82,46 @@ export default function Quiz() {
 
   const [quizAnalyticsLoading, setQuizAnalyticsLoading] =
     useState(false);
-  const [quizAnalyticsError, setQuizAnalyticsError] =
-    useState("");
+
+  const [quizAnalyticsError, setQuizAnalyticsError] = useState("");
 
   // --------------------------------------------------
   // Load PDF materials
   // --------------------------------------------------
 
   useEffect(() => {
+    if (!token) {
+      return;
+    }
+
     const fetchMaterials = async () => {
       setMaterialsLoading(true);
       setMaterialsError("");
 
       try {
         const response = await fetch(
-          `${API_BASE_URL}/api/materials/`
+          `${API_BASE_URL}/api/materials/`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
         );
 
         if (!response.ok) {
-          throw new Error(
-            "Failed to load study materials."
-          );
+          let errorMessage = "Failed to load study materials.";
+
+          try {
+            const errorData = await response.json();
+
+            if (errorData?.detail) {
+              errorMessage = errorData.detail;
+            }
+          } catch {
+            // Keep default error message.
+          }
+
+          throw new Error(errorMessage);
         }
 
         const data = await response.json();
@@ -114,17 +129,14 @@ export default function Quiz() {
         const pdfMaterials = Array.isArray(data)
           ? data.filter(
               (material) =>
-                String(material.type).toUpperCase() ===
-                "PDF"
+                String(material.type).toUpperCase() === "PDF"
             )
           : [];
 
         setMaterials(pdfMaterials);
 
         if (pdfMaterials.length > 0) {
-          setSelectedMaterialId(
-            String(pdfMaterials[0].id)
-          );
+          setSelectedMaterialId(String(pdfMaterials[0].id));
         }
       } catch (error) {
         console.error(
@@ -142,7 +154,7 @@ export default function Quiz() {
     };
 
     fetchMaterials();
-  }, []);
+  }, [token]);
 
   // --------------------------------------------------
   // Selected material
@@ -150,8 +162,7 @@ export default function Quiz() {
 
   const selectedMaterial = materials.find(
     (material) =>
-      String(material.id) ===
-      String(selectedMaterialId)
+      String(material.id) === String(selectedMaterialId)
   );
 
   // --------------------------------------------------
@@ -193,6 +204,14 @@ export default function Quiz() {
       return true;
     }
 
+    if (!token) {
+      setQuizAnalyticsError(
+        "Your session has expired. Please log in again."
+      );
+
+      return false;
+    }
+
     setQuizAnalyticsLoading(true);
     setQuizAnalyticsError("");
 
@@ -206,6 +225,7 @@ export default function Quiz() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             material_id: Number(selectedMaterialId),
@@ -269,6 +289,14 @@ export default function Quiz() {
       return;
     }
 
+    if (!token) {
+      setQuizError(
+        "Your session has expired. Please log in again."
+      );
+
+      return;
+    }
+
     setQuizLoading(true);
     setQuizError("");
     setQuizAnalyticsError("");
@@ -282,6 +310,7 @@ export default function Quiz() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             num_questions: numQuestions,
@@ -291,14 +320,12 @@ export default function Quiz() {
       );
 
       if (!response.ok) {
-        let errorMessage =
-          "Failed to generate quiz.";
+        let errorMessage = "Failed to generate quiz.";
 
         try {
-          const errorData =
-            await response.json();
+          const errorData = await response.json();
 
-          if (errorData.detail) {
+          if (errorData?.detail) {
             errorMessage = errorData.detail;
           }
         } catch {
@@ -362,8 +389,7 @@ export default function Quiz() {
     }
 
     const isCorrect =
-      selectedAnswer ===
-      currentQuestion.correct_answer;
+      selectedAnswer === currentQuestion.correct_answer;
 
     if (isCorrect) {
       const nextScore =
@@ -599,7 +625,10 @@ export default function Quiz() {
               <div className="mt-8 flex flex-wrap justify-center gap-3">
                 <button
                   onClick={handleRetryQuiz}
-                  disabled={quizLoading || quizAnalyticsLoading}
+                  disabled={
+                    quizLoading ||
+                    quizAnalyticsLoading
+                  }
                   className="flex items-center gap-2 rounded-xl bg-[#2FA084] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {quizLoading ? (
@@ -618,7 +647,10 @@ export default function Quiz() {
 
                 <button
                   onClick={handleDone}
-                  disabled={quizLoading || quizAnalyticsLoading}
+                  disabled={
+                    quizLoading ||
+                    quizAnalyticsLoading
+                  }
                   className="rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-600 transition hover:border-[#6FCF97] hover:text-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Done
@@ -803,9 +835,7 @@ export default function Quiz() {
                           }`}
                         >
                           {isCorrectOption ? (
-                            <CheckCircle2
-                              size={18}
-                            />
+                            <CheckCircle2 size={18} />
                           ) : isWrongSelected ? (
                             <XCircle size={18} />
                           ) : (
@@ -862,9 +892,7 @@ export default function Quiz() {
                           <span className="font-semibold">
                             Correct answer:
                           </span>{" "}
-                          {
-                            currentQuestion.correct_answer
-                          }
+                          {currentQuestion.correct_answer}
                         </p>
                       )}
 
@@ -874,9 +902,7 @@ export default function Quiz() {
                         </p>
 
                         <p className="mt-1 text-sm leading-6 text-gray-700">
-                          {
-                            currentQuestion.explanation
-                          }
+                          {currentQuestion.explanation}
                         </p>
                       </div>
                     </div>
@@ -942,9 +968,11 @@ export default function Quiz() {
                     <p className="font-semibold">
                       Your quiz result could not be saved.
                     </p>
+
                     <p className="mt-1">
                       {quizAnalyticsError}
                     </p>
+
                     <p className="mt-1 text-xs text-red-500">
                       Click the result button again to retry.
                     </p>
@@ -1145,6 +1173,7 @@ export default function Quiz() {
 
         {/* Info */}
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+
           <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#6FCF97]/20 text-[#1F6F5F]">
               <FileText size={19} />
@@ -1189,6 +1218,7 @@ export default function Quiz() {
               questions.
             </p>
           </div>
+
         </div>
       </div>
     </div>

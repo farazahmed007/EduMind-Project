@@ -3,36 +3,24 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.materials import router as materials_router
 from api.analytics import router as analytics_router
+from api.auth import router as auth_router
 
 from core.database import Base, engine
 
 from models.material import Material
 from models.analytics import AnalyticsEvent
+from models.user import User
 
-
-# ==================================================
-# CREATE DATABASE TABLES
-# ==================================================
 
 Base.metadata.create_all(
     bind=engine
 )
-
-
-# ==================================================
-# FASTAPI APPLICATION
-# ==================================================
 
 app = FastAPI(
     title="EduMind API",
     description="Backend API for the EduMind Adaptive Learning Platform",
     version="1.0.0",
 )
-
-
-# ==================================================
-# CORS
-# ==================================================
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,11 +33,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# ==================================================
-# ROUTERS
-# ==================================================
-
 app.include_router(
     materials_router
 )
@@ -58,10 +41,10 @@ app.include_router(
     analytics_router
 )
 
+app.include_router(
+    auth_router
+)
 
-# ==================================================
-# ROOT
-# ==================================================
 
 @app.get("/")
 def root():
@@ -69,10 +52,6 @@ def root():
         "message": "EduMind API is running 🚀"
     }
 
-
-# ==================================================
-# HEALTH CHECK
-# ==================================================
 
 @app.get("/api/health")
 def health_check():

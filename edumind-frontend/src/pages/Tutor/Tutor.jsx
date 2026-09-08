@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
 import {
-  ArrowLeft,
   Bot,
   Send,
   Loader2,
@@ -13,9 +12,13 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { useAuth } from "../../context/AuthContext";
+
 const API_BASE_URL = "http://127.0.0.1:8000";
 
 export default function Tutor() {
+  const { token } = useAuth();
+
   // --------------------------------------------------
   // Materials
   // --------------------------------------------------
@@ -41,19 +44,43 @@ export default function Tutor() {
   // --------------------------------------------------
 
   useEffect(() => {
+    if (!token) {
+      return;
+    }
+
     const fetchMaterials = async () => {
       setMaterialsLoading(true);
       setMaterialsError("");
 
       try {
         const response = await fetch(
-          `${API_BASE_URL}/api/materials/`
+          `${API_BASE_URL}/api/materials/`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
         );
 
         if (!response.ok) {
-          throw new Error(
-            "Failed to load study materials."
-          );
+          let errorMessage =
+            "Failed to load study materials.";
+
+          try {
+            const errorData = await response.json();
+
+            if (errorData?.detail) {
+              errorMessage = Array.isArray(errorData.detail)
+                ? errorData.detail
+                    .map((item) => item.msg)
+                    .join(", ")
+                : errorData.detail;
+            }
+          } catch {
+            // Keep default error message.
+          }
+
+          throw new Error(errorMessage);
         }
 
         const data = await response.json();
@@ -89,7 +116,7 @@ export default function Tutor() {
     };
 
     fetchMaterials();
-  }, []);
+  }, [token]);
 
   // --------------------------------------------------
   // Selected material
@@ -149,6 +176,13 @@ export default function Tutor() {
       return;
     }
 
+    if (!token) {
+      setTutorError(
+        "You must be logged in to use the AI Tutor."
+      );
+      return;
+    }
+
     setTutorError("");
 
     // --------------------------------------------------
@@ -185,6 +219,7 @@ export default function Tutor() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             question,
@@ -203,7 +238,13 @@ export default function Tutor() {
             await response.json();
 
           if (errorData.detail) {
-            errorMessage = errorData.detail;
+            errorMessage = Array.isArray(
+              errorData.detail
+            )
+              ? errorData.detail
+                  .map((item) => item.msg)
+                  .join(", ")
+              : errorData.detail;
           }
         } catch {
           // Keep default error message.

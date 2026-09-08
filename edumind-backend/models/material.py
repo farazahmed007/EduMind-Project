@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, ForeignKey, Integer, String
 
 from core.database import Base
 
@@ -9,6 +9,13 @@ class Material(Base):
     id = Column(
         Integer,
         primary_key=True,
+        index=True,
+    )
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
         index=True,
     )
 

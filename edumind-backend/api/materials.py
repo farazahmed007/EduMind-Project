@@ -29,7 +29,9 @@ from services.rag_service import (
 )
 
 from core.database import get_db
+from core.security import get_current_user
 from models.material import Material
+from models.user import User
 
 
 router = APIRouter(
@@ -97,15 +99,47 @@ UPLOAD_DIR.mkdir(
 
 
 # --------------------------------------------------
+# Helper - Get Current User's Material
+# --------------------------------------------------
+
+def get_user_material(
+    material_id: int,
+    current_user: User,
+    db: Session,
+) -> Material:
+
+    material = (
+        db.query(Material)
+        .filter(
+            Material.id == material_id,
+            Material.user_id == current_user.id,
+        )
+        .first()
+    )
+
+    if not material:
+        raise HTTPException(
+            status_code=404,
+            detail="Material not found.",
+        )
+
+    return material
+
+
+# --------------------------------------------------
 # GET ALL MATERIALS
 # --------------------------------------------------
 
 @router.get("/")
 def get_materials(
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     materials = (
         db.query(Material)
+        .filter(
+            Material.user_id == current_user.id
+        )
         .order_by(Material.id.desc())
         .all()
     )
@@ -120,6 +154,7 @@ def get_materials(
 @router.post("/")
 async def create_material(
     file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
 
@@ -189,6 +224,7 @@ async def create_material(
     # --------------------------------------------------
 
     new_material = Material(
+        user_id=current_user.id,
         title=file.filename,
         type=material_type,
         size=f"{len(content) / (1024 * 1024):.2f} MB",
@@ -248,23 +284,15 @@ async def create_material(
 @router.get("/{material_id}/file")
 def get_material_file(
     material_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
 
-    material = (
-        db.query(Material)
-        .filter(
-            Material.id == material_id
-        )
-        .first()
+    material = get_user_material(
+        material_id=material_id,
+        current_user=current_user,
+        db=db,
     )
-
-    if not material:
-
-        raise HTTPException(
-            status_code=404,
-            detail="Material not found.",
-        )
 
     if not material.file_path:
 
@@ -334,23 +362,15 @@ def get_material_file(
 @router.delete("/{material_id}")
 def delete_material(
     material_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
 
-    material = (
-        db.query(Material)
-        .filter(
-            Material.id == material_id
-        )
-        .first()
+    material = get_user_material(
+        material_id=material_id,
+        current_user=current_user,
+        db=db,
     )
-
-    if not material:
-
-        raise HTTPException(
-            status_code=404,
-            detail="Material not found.",
-        )
 
     # --------------------------------------------------
     # Delete physical file
@@ -407,23 +427,15 @@ def delete_material(
 def rename_material(
     material_id: int,
     new_title: str,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
 
-    material = (
-        db.query(Material)
-        .filter(
-            Material.id == material_id
-        )
-        .first()
+    material = get_user_material(
+        material_id=material_id,
+        current_user=current_user,
+        db=db,
     )
-
-    if not material:
-
-        raise HTTPException(
-            status_code=404,
-            detail="Material not found.",
-        )
 
     material.title = new_title
 
@@ -443,23 +455,15 @@ def rename_material(
 @router.post("/{material_id}/summary")
 def generate_material_summary(
     material_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
 
-    material = (
-        db.query(Material)
-        .filter(
-            Material.id == material_id
-        )
-        .first()
+    material = get_user_material(
+        material_id=material_id,
+        current_user=current_user,
+        db=db,
     )
-
-    if not material:
-
-        raise HTTPException(
-            status_code=404,
-            detail="Material not found.",
-        )
 
     if not material.file_path:
 
@@ -512,6 +516,7 @@ def generate_material_summary(
 def ask_material_tutor(
     material_id: int,
     request: TutorRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -519,20 +524,11 @@ def ask_material_tutor(
     retrieval and conversation history.
     """
 
-    material = (
-        db.query(Material)
-        .filter(
-            Material.id == material_id
-        )
-        .first()
+    material = get_user_material(
+        material_id=material_id,
+        current_user=current_user,
+        db=db,
     )
-
-    if not material:
-
-        raise HTTPException(
-            status_code=404,
-            detail="Material not found.",
-        )
 
     if not material.file_path:
 
@@ -676,6 +672,7 @@ def ask_material_tutor(
 def generate_material_quiz(
     material_id: int,
     request: QuizRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -683,20 +680,11 @@ def generate_material_quiz(
     from the selected PDF material.
     """
 
-    material = (
-        db.query(Material)
-        .filter(
-            Material.id == material_id
-        )
-        .first()
+    material = get_user_material(
+        material_id=material_id,
+        current_user=current_user,
+        db=db,
     )
-
-    if not material:
-
-        raise HTTPException(
-            status_code=404,
-            detail="Material not found.",
-        )
 
     if not material.file_path:
 
@@ -819,6 +807,7 @@ def generate_material_quiz(
 def generate_material_flashcards(
     material_id: int,
     request: FlashcardRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -830,20 +819,11 @@ def generate_material_flashcards(
     # Find Material
     # --------------------------------------------------
 
-    material = (
-        db.query(Material)
-        .filter(
-            Material.id == material_id
-        )
-        .first()
+    material = get_user_material(
+        material_id=material_id,
+        current_user=current_user,
+        db=db,
     )
-
-    if not material:
-
-        raise HTTPException(
-            status_code=404,
-            detail="Material not found.",
-        )
 
     if not material.file_path:
 

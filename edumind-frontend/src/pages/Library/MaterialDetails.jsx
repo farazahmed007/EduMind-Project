@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 
+import { useAuth } from "../../context/AuthContext";
+
 import {
   ArrowLeft,
   FileText,
@@ -34,9 +36,13 @@ const API_BASE_URL = "http://127.0.0.1:8000";
 function MaterialDetails() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { token } = useAuth();
 
   const [material, setMaterial] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [fileUrl, setFileUrl] = useState("");
+  const [fileLoading, setFileLoading] = useState(false);
+  const [fileError, setFileError] = useState("");
 
   // --------------------------------------------------
   // AI Summary states
@@ -91,10 +97,23 @@ function MaterialDetails() {
   // --------------------------------------------------
 
   useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    let isMounted = true;
+
     const fetchMaterial = async () => {
       try {
+        setLoading(true);
+
         const response = await fetch(
-          `${API_BASE_URL}/api/materials/`
+          `${API_BASE_URL}/api/materials/`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
         );
 
         if (!response.ok) {
@@ -107,16 +126,110 @@ function MaterialDetails() {
           (item) => String(item.id) === String(id)
         );
 
-        setMaterial(selectedMaterial || null);
+        if (isMounted) {
+          setMaterial(selectedMaterial || null);
+        }
       } catch (error) {
         console.error("Error loading material:", error);
+
+        if (isMounted) {
+          setMaterial(null);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
     fetchMaterial();
-  }, [id]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [id, token]);
+
+  // --------------------------------------------------
+  // Load the protected material file
+  // --------------------------------------------------
+
+  useEffect(() => {
+    if (!token || !material?.id) {
+      setFileUrl("");
+      setFileLoading(false);
+      setFileError("");
+      return;
+    }
+
+    let isMounted = true;
+    let objectUrl = "";
+
+    const fetchMaterialFile = async () => {
+      try {
+        setFileLoading(true);
+        setFileError("");
+        setFileUrl("");
+
+        const response = await fetch(
+          `${API_BASE_URL}/api/materials/${material.id}/file`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (!response.ok) {
+          let errorMessage = "Failed to load the material file.";
+
+          try {
+            const errorData = await response.json();
+
+            if (errorData?.detail) {
+              errorMessage = Array.isArray(errorData.detail)
+                ? errorData.detail.map((item) => item.msg).join(", ")
+                : errorData.detail;
+            }
+          } catch {
+            // Keep the default error message.
+          }
+
+          throw new Error(errorMessage);
+        }
+
+        const blob = await response.blob();
+        objectUrl = URL.createObjectURL(blob);
+
+        if (isMounted) {
+          setFileUrl(objectUrl);
+        }
+      } catch (error) {
+        console.error("Error loading material file:", error);
+
+        if (isMounted) {
+          setFileUrl("");
+          setFileError(
+            error.message ||
+              "Unable to load the material file."
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setFileLoading(false);
+        }
+      }
+    };
+
+    fetchMaterialFile();
+
+    return () => {
+      isMounted = false;
+
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [material?.id, token]);
 
   // --------------------------------------------------
   // Generate AI Summary
@@ -134,6 +247,7 @@ function MaterialDetails() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
         }
       );
@@ -243,6 +357,7 @@ function MaterialDetails() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             question: question,
@@ -351,6 +466,7 @@ function MaterialDetails() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             material_id: Number(id),
@@ -395,6 +511,7 @@ function MaterialDetails() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             material_id: Number(id),
@@ -465,6 +582,7 @@ function MaterialDetails() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             num_questions: 5,
@@ -643,6 +761,7 @@ function MaterialDetails() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             num_cards: 5,
@@ -803,11 +922,8 @@ function MaterialDetails() {
   }
 
   // --------------------------------------------------
-  // File URL
+  // Protected file URL
   // --------------------------------------------------
-
-  const fileUrl =
-    `${API_BASE_URL}/api/materials/${material.id}/file`;
 
   const isPDF = material.type === "PDF";
 
@@ -884,19 +1000,29 @@ function MaterialDetails() {
           <div className="flex flex-wrap gap-2">
 
             <a
-              href={fileUrl}
-              download={material.title}
-              className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-600 shadow-sm transition hover:border-[#6FCF97] hover:text-[#1F6F5F]"
+              href={fileUrl || undefined}
+              download={fileUrl ? material.title : undefined}
+              aria-disabled={!fileUrl}
+              className={`flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-600 shadow-sm transition ${
+                fileUrl
+                  ? "hover:border-[#6FCF97] hover:text-[#1F6F5F]"
+                  : "pointer-events-none cursor-not-allowed opacity-50"
+              }`}
             >
               <Download size={17} />
-              Download
+              {fileLoading ? "Loading File..." : "Download"}
             </a>
 
             <a
-              href={fileUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-2 rounded-xl bg-[#2FA084] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1F6F5F]"
+              href={fileUrl || undefined}
+              target={fileUrl ? "_blank" : undefined}
+              rel={fileUrl ? "noreferrer" : undefined}
+              aria-disabled={!fileUrl}
+              className={`flex items-center gap-2 rounded-xl bg-[#2FA084] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition ${
+                fileUrl
+                  ? "hover:bg-[#1F6F5F]"
+                  : "pointer-events-none cursor-not-allowed opacity-50"
+              }`}
             >
               <ExternalLink size={17} />
               Open in New Tab
@@ -939,11 +1065,45 @@ function MaterialDetails() {
 
               <div className="h-[calc(100vh-260px)] min-h-[650px] bg-gray-200">
 
-                <iframe
-                  src={fileUrl}
-                  title={material.title}
-                  className="h-full w-full border-0"
-                />
+                {fileLoading ? (
+                  <div className="flex h-full min-h-[650px] items-center justify-center">
+                    <div className="text-center">
+                      <Loader2
+                        size={30}
+                        className="mx-auto animate-spin text-[#2FA084]"
+                      />
+                      <p className="mt-4 text-sm font-medium text-gray-600">
+                        Loading document...
+                      </p>
+                    </div>
+                  </div>
+                ) : fileError ? (
+                  <div className="flex h-full min-h-[650px] items-center justify-center px-6">
+                    <div className="max-w-md text-center">
+                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-500">
+                        <AlertCircle size={26} />
+                      </div>
+                      <h3 className="mt-4 text-lg font-semibold text-gray-700">
+                        Unable to load document
+                      </h3>
+                      <p className="mt-2 text-sm leading-6 text-gray-500">
+                        {fileError}
+                      </p>
+                    </div>
+                  </div>
+                ) : fileUrl ? (
+                  <iframe
+                    src={fileUrl}
+                    title={material.title}
+                    className="h-full w-full border-0"
+                  />
+                ) : (
+                  <div className="flex h-full min-h-[650px] items-center justify-center px-6">
+                    <p className="text-sm text-gray-500">
+                      Document preview is unavailable.
+                    </p>
+                  </div>
+                )}
 
               </div>
 
@@ -973,12 +1133,17 @@ function MaterialDetails() {
                   </p>
 
                   <a
-                    href={fileUrl}
-                    download={material.title}
-                    className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#2FA084] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1F6F5F]"
+                    href={fileUrl || undefined}
+                    download={fileUrl ? material.title : undefined}
+                    aria-disabled={!fileUrl}
+                    className={`mt-5 inline-flex items-center gap-2 rounded-xl bg-[#2FA084] px-4 py-2.5 text-sm font-semibold text-white transition ${
+                      fileUrl
+                        ? "hover:bg-[#1F6F5F]"
+                        : "pointer-events-none cursor-not-allowed opacity-50"
+                    }`}
                   >
                     <Download size={17} />
-                    Download File
+                    {fileLoading ? "Loading File..." : "Download File"}
                   </a>
 
                 </div>
