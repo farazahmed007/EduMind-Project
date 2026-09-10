@@ -2,13 +2,14 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from sqlalchemy import func
-
 from core.database import get_db
+from core.security import get_current_user
 from models.analytics import AnalyticsEvent
 from models.material import Material
+from models.user import User
 
 
 router = APIRouter(
@@ -61,11 +62,13 @@ class FlashcardSessionRequest(BaseModel):
 def record_quiz_attempt(
     request: QuizAttemptRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     material = (
         db.query(Material)
         .filter(
-            Material.id == request.material_id
+            Material.id == request.material_id,
+            Material.user_id == current_user.id,
         )
         .first()
     )
@@ -109,11 +112,13 @@ def record_quiz_attempt(
 def record_flashcard_session(
     request: FlashcardSessionRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     material = (
         db.query(Material)
         .filter(
-            Material.id == request.material_id
+            Material.id == request.material_id,
+            Material.user_id == current_user.id,
         )
         .first()
     )
@@ -148,6 +153,7 @@ def record_flashcard_session(
 @router.get("/")
 def get_analytics(
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     # --------------------------------------------------
     # Total materials
@@ -155,6 +161,9 @@ def get_analytics(
 
     total_materials = (
         db.query(func.count(Material.id))
+        .filter(
+            Material.user_id == current_user.id
+        )
         .scalar()
         or 0
     )
@@ -165,8 +174,13 @@ def get_analytics(
 
     quiz_events = (
         db.query(AnalyticsEvent)
+        .join(
+            Material,
+            AnalyticsEvent.material_id == Material.id,
+        )
         .filter(
-            AnalyticsEvent.event_type == "quiz_completed"
+            AnalyticsEvent.event_type == "quiz_completed",
+            Material.user_id == current_user.id,
         )
         .order_by(
             AnalyticsEvent.created_at.asc()
@@ -174,24 +188,24 @@ def get_analytics(
         .all()
     )
 
+    valid_quiz_events = [
+        event
+        for event in quiz_events
+        if event.total and event.total > 0
+        and event.score is not None
+    ]
+
     quizzes_completed = len(quiz_events)
 
-    if quiz_events:
+    if valid_quiz_events:
         average_quiz_score = (
             sum(
                 (
                     event.score / event.total
                 ) * 100
-                for event in quiz_events
-                if event.total and event.total > 0
+                for event in valid_quiz_events
             )
-            / len(
-                [
-                    event
-                    for event in quiz_events
-                    if event.total and event.total > 0
-                ]
-            )
+            / len(valid_quiz_events)
         )
     else:
         average_quiz_score = 0
@@ -202,8 +216,13 @@ def get_analytics(
 
     flashcard_events = (
         db.query(AnalyticsEvent)
+        .join(
+            Material,
+            AnalyticsEvent.material_id == Material.id,
+        )
         .filter(
-            AnalyticsEvent.event_type == "flashcards_reviewed"
+            AnalyticsEvent.event_type == "flashcards_reviewed",
+            Material.user_id == current_user.id,
         )
         .order_by(
             AnalyticsEvent.created_at.asc()
@@ -240,7 +259,8 @@ def get_analytics(
             material = (
                 db.query(Material)
                 .filter(
-                    Material.id == event.material_id
+                    Material.id == event.material_id,
+                    Material.user_id == current_user.id,
                 )
                 .first()
             )
@@ -307,7 +327,8 @@ def get_analytics(
         material = (
             db.query(Material)
             .filter(
-                Material.id == material_id
+                Material.id == material_id,
+                Material.user_id == current_user.id,
             )
             .first()
         )
@@ -346,6 +367,13 @@ def get_analytics(
 
     recent_events = (
         db.query(AnalyticsEvent)
+        .join(
+            Material,
+            AnalyticsEvent.material_id == Material.id,
+        )
+        .filter(
+            Material.user_id == current_user.id,
+        )
         .order_by(
             AnalyticsEvent.created_at.desc()
         )
@@ -362,7 +390,8 @@ def get_analytics(
             material = (
                 db.query(Material)
                 .filter(
-                    Material.id == event.material_id
+                    Material.id == event.material_id,
+                    Material.user_id == current_user.id,
                 )
                 .first()
             )
