@@ -4,12 +4,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.materials import router as materials_router
 from api.analytics import router as analytics_router
 from api.auth import router as auth_router
+from api.planner import router as planner_router
 
 from core.database import Base, engine
 
 from models.material import Material
 from models.analytics import AnalyticsEvent
 from models.user import User
+from models.planner import StudyTask
 
 
 Base.metadata.create_all(
@@ -43,6 +45,10 @@ app.include_router(
 
 app.include_router(
     auth_router
+)
+
+app.include_router(
+    planner_router
 )
 
 
