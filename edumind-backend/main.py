@@ -5,6 +5,7 @@ from api.materials import router as materials_router
 from api.analytics import router as analytics_router
 from api.auth import router as auth_router
 from api.planner import router as planner_router
+from api.adaptive import router as adaptive_router
 
 from core.database import Base, engine
 
@@ -49,6 +50,10 @@ app.include_router(
 
 app.include_router(
     planner_router
+)
+
+app.include_router(
+    adaptive_router
 )
 
 

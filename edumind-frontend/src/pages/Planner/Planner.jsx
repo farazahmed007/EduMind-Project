@@ -8,6 +8,7 @@ import {
   Clock3,
   Edit3,
   Plus,
+  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
@@ -17,6 +18,7 @@ import {
   notifyPlannerUpdated,
   subscribeToPlannerUpdates,
 } from "../../utils/plannerEvents";
+import AdaptiveInsights from "./AdaptiveInsights";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -210,6 +212,9 @@ function Planner() {
   const [saving, setSaving] =
     useState(false);
 
+  const [generatingPlan, setGeneratingPlan] =
+    useState(false);
+
   // ==================================================
   // WEEK DATES
   // ==================================================
@@ -363,6 +368,90 @@ function Planner() {
       fetchTasks(),
       fetchAllTasks(),
     ]);
+  };
+
+  // ==================================================
+  // GENERATE ADAPTIVE STUDY PLAN
+  // ==================================================
+
+  const handleGenerateAdaptivePlan = async () => {
+    if (!token) {
+      setError(
+        "You must be logged in to generate an adaptive study plan."
+      );
+      return;
+    }
+
+    try {
+      setGeneratingPlan(true);
+      setError("");
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/adaptive/generate-plan`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      let data = null;
+
+      try {
+        data = await response.json();
+      } catch {
+        // Keep response handling safe if
+        // the backend returns no JSON body.
+      }
+
+      if (!response.ok) {
+        let message =
+          "Failed to generate adaptive study plan.";
+
+        if (data?.detail) {
+          if (
+            Array.isArray(data.detail)
+          ) {
+            message =
+              data.detail
+                .map(
+                  (item) =>
+                    item.msg
+                )
+                .join(", ");
+          } else {
+            message =
+              data.detail;
+          }
+        }
+
+        throw new Error(message);
+      }
+
+      await refreshPlannerData();
+
+      notifyPlannerUpdated();
+
+      if (
+        data?.count === 0 &&
+        data?.message
+      ) {
+        setError(data.message);
+      }
+    } catch (err) {
+      console.error(
+        "Error generating adaptive study plan:",
+        err
+      );
+
+      setError(
+        err.message ||
+          "Unable to generate the adaptive study plan."
+      );
+    } finally {
+      setGeneratingPlan(false);
+    }
   };
 
   // ==================================================
@@ -849,13 +938,39 @@ function Planner() {
             </div>
           </div>
 
-          <button
-            onClick={openCreateForm}
-            className="flex items-center justify-center gap-2 rounded-xl bg-[#2FA084] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1F6F5F]"
-          >
-            <Plus size={18} />
-            Add Study Task
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              onClick={
+                handleGenerateAdaptivePlan
+              }
+              disabled={
+                generatingPlan ||
+                saving
+              }
+              className="flex items-center justify-center gap-2 rounded-xl border border-[#2FA084] bg-white px-5 py-3 text-sm font-semibold text-[#1F6F5F] shadow-sm transition hover:bg-[#6FCF97]/10 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {generatingPlan ? (
+                <>
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#2FA084] border-t-transparent" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles size={18} />
+                  Generate Adaptive Plan
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={openCreateForm}
+              disabled={generatingPlan}
+              className="flex items-center justify-center gap-2 rounded-xl bg-[#2FA084] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Plus size={18} />
+              Add Study Task
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1160,6 +1275,12 @@ function Planner() {
           />
         </div>
       </section>
+
+      {/* ==================================================
+          ADAPTIVE AI INSIGHTS
+          ================================================== */}
+
+      <AdaptiveInsights />
 
       {/* ==================================================
           CREATE / EDIT FORM
