@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 import json
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -21,6 +22,11 @@ LOW_SCORE_THRESHOLD = 60.0
 MEDIUM_SCORE_THRESHOLD = 75.0
 
 MAX_RECOMMENDATIONS = 8
+
+QUIZ_TREND_MIN_ATTEMPTS = 2
+
+QUIZ_TREND_IMPROVING_THRESHOLD = 8.0
+QUIZ_TREND_DECLINING_THRESHOLD = -8.0
 
 
 # ==================================================
@@ -58,9 +64,11 @@ def _days_since(
     if timestamp is None:
         return None
 
-    now = datetime.now(
-        timestamp.tzinfo
-    ) if timestamp.tzinfo else datetime.now()
+    now = (
+        datetime.now(timestamp.tzinfo)
+        if timestamp.tzinfo
+        else datetime.now()
+    )
 
     difference = now - timestamp
 
@@ -86,6 +94,38 @@ def _clamp(
             value,
         ),
     )
+
+
+def _extract_material_id(
+    task: StudyTask,
+) -> int | None:
+    """
+    Extract a material ID from an adaptive task.
+
+    Adaptive tasks store the material relationship inside
+    the description using:
+
+        [material_id:123]
+
+    Returns None for normal manually-created tasks.
+    """
+
+    description = task.description or ""
+
+    match = re.search(
+        r"\[material_id:(\d+)\]",
+        description,
+    )
+
+    if not match:
+        return None
+
+    try:
+        return int(
+            match.group(1)
+        )
+    except ValueError:
+        return None
 
 
 # ==================================================
@@ -188,6 +228,112 @@ def _load_user_tasks(
 
 
 # ==================================================
+# QUIZ PERFORMANCE TREND
+# ==================================================
+
+def _calculate_quiz_trend(
+    quiz_events: list[AnalyticsEvent],
+) -> dict[str, Any]:
+    """
+    Compare recent quiz performance with previous performance.
+
+    The goal is to detect whether the student's understanding
+    appears to be:
+
+    - improving
+    - stable
+    - declining
+
+    At least two valid quiz attempts are required.
+    """
+
+    scored_attempts = []
+
+    for event in quiz_events:
+        percentage = _safe_percentage(
+            event.score,
+            event.total,
+        )
+
+        if percentage is None:
+            continue
+
+        scored_attempts.append(
+            {
+                "percentage": percentage,
+                "created_at": event.created_at,
+            }
+        )
+
+    if len(scored_attempts) < QUIZ_TREND_MIN_ATTEMPTS:
+        return {
+            "quiz_score_trend": "insufficient_data",
+            "recent_quiz_average": None,
+            "previous_quiz_average": None,
+            "quiz_score_change": None,
+        }
+
+    scored_attempts.sort(
+        key=lambda item: (
+            item["created_at"]
+            if item["created_at"] is not None
+            else datetime.min
+        )
+    )
+
+    # Compare the most recent attempt with the average
+    # of previous attempts. This makes the signal responsive
+    # even when the student has only a small history.
+    latest_score = scored_attempts[-1]["percentage"]
+
+    previous_scores = [
+        item["percentage"]
+        for item in scored_attempts[:-1]
+    ]
+
+    previous_average = (
+        sum(previous_scores)
+        / len(previous_scores)
+    )
+
+    score_change = (
+        latest_score
+        - previous_average
+    )
+
+    if (
+        score_change
+        >= QUIZ_TREND_IMPROVING_THRESHOLD
+    ):
+        trend = "improving"
+
+    elif (
+        score_change
+        <= QUIZ_TREND_DECLINING_THRESHOLD
+    ):
+        trend = "declining"
+
+    else:
+        trend = "stable"
+
+    return {
+        "quiz_score_trend": trend,
+        "recent_quiz_average": round(
+            latest_score,
+            1,
+        ),
+        "previous_quiz_average": round(
+            previous_average,
+            1,
+        ),
+        "quiz_score_change": round(
+            score_change,
+            1,
+        ),
+    }
+
+
+# ==================================================
 # MATERIAL PERFORMANCE
 # ==================================================
 
@@ -201,15 +347,26 @@ def _build_material_profiles(
     Build a learning profile for every material.
 
     The profile combines:
+
     - quiz performance
+    - quiz performance trend
     - number of quiz attempts
     - flashcard activity
     - most recent learning activity
     - incomplete planner tasks
+    - completed planner tasks
+    - task completion rate
     """
 
-    quiz_by_material: dict[int, list[AnalyticsEvent]] = {}
-    flashcards_by_material: dict[int, list[AnalyticsEvent]] = {}
+    quiz_by_material: dict[
+        int,
+        list[AnalyticsEvent],
+    ] = {}
+
+    flashcards_by_material: dict[
+        int,
+        list[AnalyticsEvent],
+    ] = {}
 
     for event in quiz_events:
         if event.material_id is None:
@@ -229,19 +386,29 @@ def _build_material_profiles(
             [],
         ).append(event)
 
-    tasks_by_material_title: dict[str, list[StudyTask]] = {}
+    tasks_by_material_id: dict[
+        int,
+        list[StudyTask],
+    ] = {}
+
+    tasks_without_material_id: list[
+        StudyTask
+    ] = []
 
     for task in tasks:
-        normalized_title = (
-            task.title
-            .strip()
-            .lower()
+        material_id = _extract_material_id(
+            task
         )
 
-        tasks_by_material_title.setdefault(
-            normalized_title,
-            [],
-        ).append(task)
+        if material_id is not None:
+            tasks_by_material_id.setdefault(
+                material_id,
+                [],
+            ).append(task)
+        else:
+            tasks_without_material_id.append(
+                task
+            )
 
     profiles = []
 
@@ -251,9 +418,11 @@ def _build_material_profiles(
             [],
         )
 
-        material_flashcards = flashcards_by_material.get(
-            material.id,
-            [],
+        material_flashcards = (
+            flashcards_by_material.get(
+                material.id,
+                [],
+            )
         )
 
         scores = []
@@ -273,6 +442,10 @@ def _build_material_profiles(
             sum(scores) / len(scores)
             if scores
             else None
+        )
+
+        quiz_trend = _calculate_quiz_trend(
+            material_quizzes
         )
 
         latest_quiz_at = None
@@ -314,24 +487,76 @@ def _build_material_profiles(
             else None
         )
 
-        incomplete_tasks = [
-            task
-            for task in tasks
-            if not task.completed
-            and (
-                material.title.strip().lower()
-                in task.title.strip().lower()
-                or task.title.strip().lower()
-                in material.title.strip().lower()
+        # --------------------------------------------------
+        # MATERIAL-LINKED TASKS
+        # --------------------------------------------------
+
+        related_tasks = list(
+            tasks_by_material_id.get(
+                material.id,
+                [],
             )
-        ]
+        )
+
+        # Backward-compatible fallback for older manually
+        # created tasks that don't have [material_id:X].
+        material_title_lower = (
+            material.title.strip().lower()
+        )
+
+        for task in tasks_without_material_id:
+            task_title_lower = (
+                task.title.strip().lower()
+            )
+
+            if (
+                material_title_lower
+                and (
+                    material_title_lower
+                    in task_title_lower
+                    or task_title_lower
+                    in material_title_lower
+                )
+            ):
+                related_tasks.append(
+                    task
+                )
+
+        total_related_tasks = len(
+            related_tasks
+        )
+
+        completed_related_tasks = sum(
+            1
+            for task in related_tasks
+            if task.completed
+        )
+
+        incomplete_related_tasks = (
+            total_related_tasks
+            - completed_related_tasks
+        )
+
+        task_completion_rate = (
+            (
+                completed_related_tasks
+                / total_related_tasks
+            )
+            * 100.0
+            if total_related_tasks > 0
+            else None
+        )
 
         profiles.append(
             {
                 "material_id": material.id,
                 "material_title": material.title,
                 "material_type": material.type,
-                "quiz_attempts": len(material_quizzes),
+
+                "quiz_attempts": len(
+                    material_quizzes
+                ),
+
                 "average_quiz_score": (
                     round(
                         average_score,
@@ -340,18 +565,46 @@ def _build_material_profiles(
                     if average_score is not None
                     else None
                 ),
+
+                "recent_quiz_average": (
+                    quiz_trend[
+                        "recent_quiz_average"
+                    ]
+                ),
+
+                "previous_quiz_average": (
+                    quiz_trend[
+                        "previous_quiz_average"
+                    ]
+                ),
+
+                "quiz_score_change": (
+                    quiz_trend[
+                        "quiz_score_change"
+                    ]
+                ),
+
+                "quiz_score_trend": (
+                    quiz_trend[
+                        "quiz_score_trend"
+                    ]
+                ),
+
                 "flashcard_sessions": len(
                     material_flashcards
                 ),
+
                 "flashcards_reviewed": sum(
                     event.item_count or 0
                     for event in material_flashcards
                 ),
+
                 "latest_activity": (
                     latest_activity_at.isoformat()
                     if latest_activity_at
                     else None
                 ),
+
                 "days_since_activity": (
                     _days_since(
                         latest_activity_at
@@ -359,8 +612,26 @@ def _build_material_profiles(
                     if latest_activity_at
                     else None
                 ),
-                "incomplete_related_tasks": len(
-                    incomplete_tasks
+
+                "total_related_tasks": (
+                    total_related_tasks
+                ),
+
+                "completed_related_tasks": (
+                    completed_related_tasks
+                ),
+
+                "incomplete_related_tasks": (
+                    incomplete_related_tasks
+                ),
+
+                "task_completion_rate": (
+                    round(
+                        task_completion_rate,
+                        1,
+                    )
+                    if task_completion_rate is not None
+                    else None
                 ),
             }
         )
@@ -383,11 +654,16 @@ def _calculate_priority_score(
 
     The score considers:
 
-    1. Low quiz performance.
-    2. Lack of quiz history.
-    3. Lack of recent activity.
-    4. Low revision activity.
-    5. Existing unfinished tasks.
+    1. Current quiz performance.
+    2. Quiz performance trend.
+    3. Lack of quiz history.
+    4. Lack of recent activity.
+    5. Low revision activity.
+    6. Planner adherence.
+    7. Existing unfinished work.
+
+    This is the main feedback-loop component of the
+    adaptive planner.
     """
 
     score = 0.0
@@ -420,8 +696,26 @@ def _calculate_priority_score(
         0,
     )
 
+    completed_tasks = profile.get(
+        "completed_related_tasks",
+        0,
+    )
+
+    task_completion_rate = profile.get(
+        "task_completion_rate"
+    )
+
+    quiz_score_trend = profile.get(
+        "quiz_score_trend",
+        "insufficient_data",
+    )
+
+    quiz_score_change = profile.get(
+        "quiz_score_change"
+    )
+
     # --------------------------------------------------
-    # Quiz weakness
+    # Current quiz weakness
     # --------------------------------------------------
 
     if average_quiz_score is None:
@@ -450,6 +744,16 @@ def _calculate_priority_score(
         score += 8.0
 
     # --------------------------------------------------
+    # Quiz performance trend
+    # --------------------------------------------------
+
+    if quiz_score_trend == "declining":
+        score += 15.0
+
+    elif quiz_score_trend == "improving":
+        score -= 12.0
+
+    # --------------------------------------------------
     # Inactivity
     # --------------------------------------------------
 
@@ -476,6 +780,25 @@ def _calculate_priority_score(
         score += 7.0
 
     # --------------------------------------------------
+    # Planner behavior
+    # --------------------------------------------------
+
+    if task_completion_rate is not None:
+
+        # Strong adherence means the student is keeping
+        # up with the generated workload.
+        if (
+            task_completion_rate >= 80.0
+            and completed_tasks >= 2
+        ):
+            score -= 8.0
+
+        # Low adherence means the system should be careful
+        # about adding too much new workload.
+        elif task_completion_rate < 50.0:
+            score += 8.0
+
+    # --------------------------------------------------
     # Existing unfinished work
     # --------------------------------------------------
 
@@ -483,6 +806,16 @@ def _calculate_priority_score(
         15.0,
         incomplete_tasks * 5.0,
     )
+
+    # --------------------------------------------------
+    # Avoid overreacting to a single small trend
+    # --------------------------------------------------
+
+    if (
+        quiz_score_change is not None
+        and abs(quiz_score_change) < 3.0
+    ):
+        score -= 0.0
 
     return round(
         _clamp(
@@ -509,6 +842,10 @@ def _classify_priority(
 
     return "low"
 
+
+# ==================================================
+# RECOMMENDATION ACTION
+# ==================================================
 
 def _build_recommendation_action(
     profile: dict[str, Any],
@@ -538,31 +875,140 @@ def _build_recommendation_action(
         "days_since_activity"
     )
 
-    if average_score is not None and average_score < 60:
-        return "Review the material and take another practice quiz."
+    quiz_score_trend = profile.get(
+        "quiz_score_trend",
+        "insufficient_data",
+    )
 
-    if average_score is not None and average_score < 75:
-        return "Revise the weaker concepts and complete a medium-difficulty quiz."
+    task_completion_rate = profile.get(
+        "task_completion_rate"
+    )
+
+    incomplete_tasks = profile.get(
+        "incomplete_related_tasks",
+        0,
+    )
+
+    # --------------------------------------------------
+    # Declining performance
+    # --------------------------------------------------
+
+    if quiz_score_trend == "declining":
+        return (
+            "Review the weaker concepts, then take "
+            "another practice quiz to check progress."
+        )
+
+    # --------------------------------------------------
+    # Very low performance
+    # --------------------------------------------------
+
+    if (
+        average_score is not None
+        and average_score < 60
+    ):
+        return (
+            "Review the material and take another "
+            "practice quiz."
+        )
+
+    # --------------------------------------------------
+    # Moderate performance
+    # --------------------------------------------------
+
+    if (
+        average_score is not None
+        and average_score < 75
+    ):
+        return (
+            "Revise the weaker concepts and complete "
+            "a medium-difficulty quiz."
+        )
+
+    # --------------------------------------------------
+    # No assessment history
+    # --------------------------------------------------
 
     if quiz_attempts == 0:
-        return "Study the material and complete an initial quiz to measure understanding."
+        return (
+            "Study the material and complete an initial "
+            "quiz to measure understanding."
+        )
+
+    # --------------------------------------------------
+    # Improving performance
+    # --------------------------------------------------
+
+    if quiz_score_trend == "improving":
+        return (
+            "Your recent performance is improving. "
+            "Use a short revision session and then "
+            "try a slightly more challenging quiz."
+        )
+
+    # --------------------------------------------------
+    # Inactivity
+    # --------------------------------------------------
 
     if (
         days_since_activity is None
         or days_since_activity >= 7
     ):
-        return "Review this material to refresh your memory."
+        return (
+            "Review this material to refresh your memory."
+        )
+
+    # --------------------------------------------------
+    # Missing flashcard practice
+    # --------------------------------------------------
 
     if flashcard_sessions == 0:
-        return "Use flashcards for active recall and then test yourself."
+        return (
+            "Use flashcards for active recall and then "
+            "test yourself."
+        )
+
+    # --------------------------------------------------
+    # Low planner adherence
+    # --------------------------------------------------
+
+    if (
+        task_completion_rate is not None
+        and task_completion_rate < 50.0
+        and incomplete_tasks > 0
+    ):
+        return (
+            "Complete the unfinished study work before "
+            "adding more workload."
+        )
+
+    # --------------------------------------------------
+    # High priority
+    # --------------------------------------------------
 
     if priority_level == "high":
-        return "Schedule a focused revision session and practice questions."
+        return (
+            "Schedule a focused revision session and "
+            "practice questions."
+        )
+
+    # --------------------------------------------------
+    # Medium priority
+    # --------------------------------------------------
 
     if priority_level == "medium":
-        return "Do a short revision session and review key concepts."
+        return (
+            "Do a short revision session and review "
+            "key concepts."
+        )
 
-    return "Maintain your understanding with light revision."
+    # --------------------------------------------------
+    # Low priority
+    # --------------------------------------------------
+
+    return (
+        "Maintain your understanding with light revision."
+    )
 
 
 # ==================================================
@@ -576,9 +1022,13 @@ def analyze_learning_profile(
     """
     Analyze the current user's learning data.
 
-    This function does not call the LLM. It produces the
-    reliable structured data that the recommendation engine
-    can safely provide to the LLM.
+    This function does not call the LLM.
+
+    It produces reliable structured data that the
+    recommendation engine can safely provide to the LLM.
+
+    The analysis is recalculated from the latest database
+    state every time the adaptive planner is requested.
     """
 
     materials = _load_user_materials(
@@ -617,8 +1067,14 @@ def analyze_learning_profile(
             priority_score
         )
 
-        profile["priority_score"] = priority_score
-        profile["priority_level"] = priority_level
+        profile["priority_score"] = (
+            priority_score
+        )
+
+        profile["priority_level"] = (
+            priority_level
+        )
+
         profile["recommended_action"] = (
             _build_recommendation_action(
                 profile,
@@ -635,8 +1091,12 @@ def analyze_learning_profile(
 
     return {
         "generated_at": datetime.now().isoformat(),
-        "materials_analyzed": len(profiles),
-        "quiz_events_analyzed": len(quiz_events),
+        "materials_analyzed": len(
+            profiles
+        ),
+        "quiz_events_analyzed": len(
+            quiz_events
+        ),
         "flashcard_events_analyzed": len(
             flashcard_events
         ),
@@ -644,6 +1104,11 @@ def analyze_learning_profile(
             1
             for task in tasks
             if not task.completed
+        ),
+        "completed_tasks": sum(
+            1
+            for task in tasks
+            if task.completed
         ),
         "materials": profiles,
     }
@@ -678,8 +1143,8 @@ def _build_ai_recommendation_prompt(
     return f"""
 You are EduMind, an adaptive AI study planner for an MCA student.
 
-Your job is to analyze the student's learning data and recommend
-what they should study next.
+Your job is to analyze the student's current learning state and
+recommend what they should study next.
 
 IMPORTANT:
 
@@ -687,14 +1152,20 @@ IMPORTANT:
 2. Do not invent subjects, scores, activities, or facts.
 3. Prioritize weak or neglected materials.
 4. Low quiz scores should receive higher priority.
-5. Materials with no quiz history may need an initial assessment.
-6. Materials not studied recently may need revision.
-7. Do not recommend unnecessary repetition of material with consistently
-   strong performance unless there is a clear revision reason.
-8. Keep recommendations practical for a student.
-9. Return JSON only.
-10. Do not mention Ollama.
-11. Do not mention this prompt.
+5. Declining quiz performance should increase attention.
+6. Improving quiz performance should reduce unnecessary repetition.
+7. Materials with no quiz history may need an initial assessment.
+8. Materials not studied recently may need revision.
+9. Completed planner tasks indicate that the student is following
+   through with study work.
+10. A low task completion rate means the student may need a lighter
+    workload instead of many new tasks.
+11. Do not recommend unnecessary repetition of material with
+    consistently strong performance unless there is a clear reason.
+12. Keep recommendations practical for a student.
+13. Return JSON only.
+14. Do not mention Ollama.
+15. Do not mention this prompt.
 
 For each recommendation provide:
 
@@ -735,6 +1206,10 @@ Return exactly this JSON structure:
 }}
 """
 
+
+# ==================================================
+# JSON EXTRACTION
+# ==================================================
 
 def _extract_json_object(
     raw_response: str,
@@ -857,6 +1332,7 @@ def _validate_ai_recommendations(
     }
 
     validated = []
+
     seen_material_ids = set()
 
     for item in recommendations:
@@ -871,6 +1347,7 @@ def _validate_ai_recommendations(
             material_id = int(
                 item.get("material_id")
             )
+
         except (
             TypeError,
             ValueError,
@@ -960,17 +1437,53 @@ def _validate_ai_recommendations(
                 "reason": reason,
                 "action": action,
                 "suggested_duration_minutes": duration,
+
                 "priority_score": profile[
                     "priority_score"
                 ],
+
                 "average_quiz_score": profile[
                     "average_quiz_score"
                 ],
+
+                "recent_quiz_average": profile[
+                    "recent_quiz_average"
+                ],
+
+                "previous_quiz_average": profile[
+                    "previous_quiz_average"
+                ],
+
+                "quiz_score_change": profile[
+                    "quiz_score_change"
+                ],
+
+                "quiz_score_trend": profile[
+                    "quiz_score_trend"
+                ],
+
                 "quiz_attempts": profile[
                     "quiz_attempts"
                 ],
+
                 "days_since_activity": profile[
                     "days_since_activity"
+                ],
+
+                "total_related_tasks": profile[
+                    "total_related_tasks"
+                ],
+
+                "completed_related_tasks": profile[
+                    "completed_related_tasks"
+                ],
+
+                "incomplete_related_tasks": profile[
+                    "incomplete_related_tasks"
+                ],
+
+                "task_completion_rate": profile[
+                    "task_completion_rate"
                 ],
             }
         )
@@ -999,6 +1512,10 @@ def generate_recommendations(
     Deterministic analysis decides which materials deserve
     attention. Ollama then converts those findings into useful
     student-facing recommendations.
+
+    The analysis is performed from the latest database state,
+    meaning new quiz results and completed planner tasks can
+    change future recommendations.
     """
 
     analysis = analyze_learning_profile(
@@ -1058,33 +1575,72 @@ def generate_recommendations(
                 "material_id": profile[
                     "material_id"
                 ],
+
                 "material_title": profile[
                     "material_title"
                 ],
+
                 "priority": profile[
                     "priority_level"
                 ],
+
                 "reason": (
                     "This material has a learning priority "
                     f"score of {profile['priority_score']}."
                 ),
+
                 "action": profile[
                     "recommended_action"
                 ],
-                "suggested_duration_minutes": (
-                    45
-                ),
+
+                "suggested_duration_minutes": 45,
+
                 "priority_score": profile[
                     "priority_score"
                 ],
+
                 "average_quiz_score": profile[
                     "average_quiz_score"
                 ],
+
+                "recent_quiz_average": profile[
+                    "recent_quiz_average"
+                ],
+
+                "previous_quiz_average": profile[
+                    "previous_quiz_average"
+                ],
+
+                "quiz_score_change": profile[
+                    "quiz_score_change"
+                ],
+
+                "quiz_score_trend": profile[
+                    "quiz_score_trend"
+                ],
+
                 "quiz_attempts": profile[
                     "quiz_attempts"
                 ],
+
                 "days_since_activity": profile[
                     "days_since_activity"
+                ],
+
+                "total_related_tasks": profile[
+                    "total_related_tasks"
+                ],
+
+                "completed_related_tasks": profile[
+                    "completed_related_tasks"
+                ],
+
+                "incomplete_related_tasks": profile[
+                    "incomplete_related_tasks"
+                ],
+
+                "task_completion_rate": profile[
+                    "task_completion_rate"
                 ],
             }
             for profile in fallback_profiles
@@ -1111,7 +1667,9 @@ def get_plan_candidates(
     automatic study-plan generator.
 
     This is intentionally separate from task creation.
-    The API layer will decide whether to actually create tasks.
+
+    The candidates are recalculated from the user's current
+    learning state each time this function is called.
     """
 
     analysis = analyze_learning_profile(
@@ -1131,24 +1689,63 @@ def get_plan_candidates(
                 "material_id": profile[
                     "material_id"
                 ],
+
                 "material_title": profile[
                     "material_title"
                 ],
+
                 "priority": profile[
                     "priority_level"
                 ],
+
                 "priority_score": profile[
                     "priority_score"
                 ],
+
                 "average_quiz_score": profile[
                     "average_quiz_score"
                 ],
+
+                "recent_quiz_average": profile[
+                    "recent_quiz_average"
+                ],
+
+                "previous_quiz_average": profile[
+                    "previous_quiz_average"
+                ],
+
+                "quiz_score_change": profile[
+                    "quiz_score_change"
+                ],
+
+                "quiz_score_trend": profile[
+                    "quiz_score_trend"
+                ],
+
                 "quiz_attempts": profile[
                     "quiz_attempts"
                 ],
+
                 "days_since_activity": profile[
                     "days_since_activity"
                 ],
+
+                "total_related_tasks": profile[
+                    "total_related_tasks"
+                ],
+
+                "completed_related_tasks": profile[
+                    "completed_related_tasks"
+                ],
+
+                "incomplete_related_tasks": profile[
+                    "incomplete_related_tasks"
+                ],
+
+                "task_completion_rate": profile[
+                    "task_completion_rate"
+                ],
+
                 "recommended_action": profile[
                     "recommended_action"
                 ],

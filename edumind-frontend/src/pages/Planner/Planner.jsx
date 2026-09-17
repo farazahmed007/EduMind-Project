@@ -28,9 +28,11 @@ const API_BASE_URL = "http://127.0.0.1:8000";
 
 const formatDateInput = (date) => {
   const year = date.getFullYear();
+
   const month = String(
     date.getMonth() + 1
   ).padStart(2, "0");
+
   const day = String(
     date.getDate()
   ).padStart(2, "0");
@@ -170,6 +172,111 @@ const getDayNumber = (dateString) => {
 };
 
 // ==================================================
+// ADAPTIVE PLAN MODE HELPERS
+// ==================================================
+
+const getAdaptiveModeLabel = (mode) => {
+  switch (mode) {
+    case "performance_declining":
+      return "Performance Declining";
+
+    case "performance_improving":
+      return "Performance Improving";
+
+    case "low_planner_adherence":
+      return "Low Planner Adherence";
+
+    case "no_duplicate_tasks":
+      return "Plan Already Covered";
+
+    case "no_data":
+      return "Not Enough Learning Data";
+
+    case "priority_based":
+      return "Priority Based";
+
+    default:
+      return "Adaptive Update";
+  }
+};
+
+const getAdaptiveModeClasses = (mode) => {
+  switch (mode) {
+    case "performance_declining":
+      return {
+        container:
+          "border-red-200 bg-red-50",
+        icon:
+          "bg-red-100 text-red-600",
+        title:
+          "text-red-700",
+        text:
+          "text-red-600",
+      };
+
+    case "performance_improving":
+      return {
+        container:
+          "border-[#6FCF97]/40 bg-[#6FCF97]/10",
+        icon:
+          "bg-[#6FCF97]/20 text-[#1F6F5F]",
+        title:
+          "text-[#1F6F5F]",
+        text:
+          "text-gray-600",
+      };
+
+    case "low_planner_adherence":
+      return {
+        container:
+          "border-orange-200 bg-orange-50",
+        icon:
+          "bg-orange-100 text-orange-600",
+        title:
+          "text-orange-700",
+        text:
+          "text-orange-600",
+      };
+
+    case "no_duplicate_tasks":
+      return {
+        container:
+          "border-blue-200 bg-blue-50",
+        icon:
+          "bg-blue-100 text-blue-600",
+        title:
+          "text-blue-700",
+        text:
+          "text-blue-600",
+      };
+
+    case "no_data":
+      return {
+        container:
+          "border-gray-200 bg-gray-50",
+        icon:
+          "bg-gray-100 text-gray-500",
+        title:
+          "text-gray-700",
+        text:
+          "text-gray-500",
+      };
+
+    default:
+      return {
+        container:
+          "border-[#6FCF97]/30 bg-[#F8F9F8]",
+        icon:
+          "bg-[#6FCF97]/20 text-[#1F6F5F]",
+        title:
+          "text-[#1F6F5F]",
+        text:
+          "text-gray-600",
+      };
+  }
+};
+
+// ==================================================
 // PLANNER COMPONENT
 // ==================================================
 
@@ -214,6 +321,13 @@ function Planner() {
 
   const [generatingPlan, setGeneratingPlan] =
     useState(false);
+
+  // ==================================================
+  // ADAPTIVE PLAN RESULT
+  // ==================================================
+
+  const [adaptivePlanResult, setAdaptivePlanResult] =
+    useState(null);
 
   // ==================================================
   // WEEK DATES
@@ -386,6 +500,10 @@ function Planner() {
       setGeneratingPlan(true);
       setError("");
 
+      // Clear the previous generation result so
+      // the UI reflects the latest generation only.
+      setAdaptivePlanResult(null);
+
       const response = await fetch(
         `${API_BASE_URL}/api/adaptive/generate-plan`,
         {
@@ -429,16 +547,17 @@ function Planner() {
         throw new Error(message);
       }
 
+      // Store the complete backend result.
+      // This powers the "why did my plan change?"
+      // explanation shown in the UI.
+      setAdaptivePlanResult(data);
+
+      // Refresh planner immediately so newly-created
+      // tasks appear in the calendar and task list.
       await refreshPlannerData();
 
+      // Notify Dashboard and other planner components.
       notifyPlannerUpdated();
-
-      if (
-        data?.count === 0 &&
-        data?.message
-      ) {
-        setError(data.message);
-      }
     } catch (err) {
       console.error(
         "Error generating adaptive study plan:",
@@ -911,14 +1030,17 @@ function Planner() {
 
   return (
     <div className="min-h-full bg-[#EEEEEE] px-4 py-5 sm:px-6 lg:px-8">
+
       {/* ==================================================
           HEADER
           ================================================== */}
 
       <section className="mb-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+
           <div>
             <div className="flex items-center gap-3">
+
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#6FCF97]/20 text-[#1F6F5F]">
                 <CalendarDays
                   size={24}
@@ -935,10 +1057,12 @@ function Planner() {
                   stay on track.
                 </p>
               </div>
+
             </div>
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row">
+
             <button
               onClick={
                 handleGenerateAdaptivePlan
@@ -970,6 +1094,7 @@ function Planner() {
               <Plus size={18} />
               Add Study Task
             </button>
+
           </div>
         </div>
       </section>
@@ -979,7 +1104,9 @@ function Planner() {
           ================================================== */}
 
       <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+
         <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
               Study Calendar
@@ -993,6 +1120,7 @@ function Planner() {
           </div>
 
           <div className="flex items-center gap-2">
+
             <button
               onClick={handleToday}
               className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
@@ -1027,10 +1155,12 @@ function Planner() {
                 size={19}
               />
             </button>
+
           </div>
         </div>
 
         <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+
           {weekDates.map(
             (dateString) => {
               const isSelected =
@@ -1068,6 +1198,7 @@ function Planner() {
                       : "border-gray-100 bg-white text-gray-600 hover:border-[#2FA084]/40 hover:bg-[#F8F9F8]"
                   }`}
                 >
+
                   <span
                     className={`text-xs font-medium ${
                       isSelected
@@ -1120,10 +1251,12 @@ function Planner() {
                       }`}
                     />
                   )}
+
                 </button>
               );
             }
           )}
+
         </div>
 
         {calendarLoading && (
@@ -1131,6 +1264,7 @@ function Planner() {
             Updating calendar...
           </p>
         )}
+
       </section>
 
       {/* ==================================================
@@ -1138,7 +1272,9 @@ function Planner() {
           ================================================== */}
 
       <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
               Selected Day
@@ -1172,7 +1308,9 @@ function Planner() {
             }}
             className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm text-gray-700 outline-none transition focus:border-[#2FA084] focus:ring-2 focus:ring-[#2FA084]/20"
           />
+
         </div>
+
       </section>
 
       {/* ==================================================
@@ -1181,6 +1319,7 @@ function Planner() {
 
       {error && (
         <div className="mb-5 flex items-start justify-between gap-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+
           <p className="text-sm text-red-600">
             {error}
           </p>
@@ -1193,7 +1332,291 @@ function Planner() {
           >
             <X size={18} />
           </button>
+
         </div>
+      )}
+
+      {/* ==================================================
+          ADAPTIVE PLAN UPDATE
+          ================================================== */}
+
+      {adaptivePlanResult && (
+        <section
+          className={`mb-5 rounded-2xl border p-5 shadow-sm ${
+            getAdaptiveModeClasses(
+              adaptivePlanResult?.adaptation?.mode
+            ).container
+          }`}
+        >
+
+          <div className="flex items-start gap-3">
+
+            <div
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
+                getAdaptiveModeClasses(
+                  adaptivePlanResult?.adaptation?.mode
+                ).icon
+              }`}
+            >
+              <Sparkles size={21} />
+            </div>
+
+            <div className="min-w-0 flex-1">
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+
+                <div>
+                  <p
+                    className={`text-xs font-semibold uppercase tracking-wide ${
+                      getAdaptiveModeClasses(
+                        adaptivePlanResult?.adaptation?.mode
+                      ).title
+                    }`}
+                  >
+                    Adaptive Plan Update
+                  </p>
+
+                  <h3
+                    className={`mt-1 text-lg font-bold ${
+                      getAdaptiveModeClasses(
+                        adaptivePlanResult?.adaptation?.mode
+                      ).title
+                    }`}
+                  >
+                    {adaptivePlanResult.count > 0
+                      ? "Your study plan was adapted"
+                      : "Your study plan is already up to date"}
+                  </h3>
+                </div>
+
+                <span
+                  className={`inline-flex w-fit rounded-full bg-white/80 px-3 py-1 text-xs font-bold ${
+                    getAdaptiveModeClasses(
+                      adaptivePlanResult?.adaptation?.mode
+                    ).title
+                  }`}
+                >
+                  {getAdaptiveModeLabel(
+                    adaptivePlanResult?.adaptation?.mode
+                  )}
+                </span>
+
+              </div>
+
+              {/* ==================================================
+                  COUNT
+                  ================================================== */}
+
+              <div className="mt-4 rounded-xl bg-white/80 p-4">
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      Plan Result
+                    </p>
+
+                    <p className="mt-1 text-sm font-semibold text-gray-700">
+                      {adaptivePlanResult.count === 0
+                        ? "No new study tasks were created."
+                        : `${adaptivePlanResult.count} new study task${
+                            adaptivePlanResult.count === 1
+                              ? ""
+                              : "s"
+                          } created.`}
+                    </p>
+                  </div>
+
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#2FA084] text-lg font-bold text-white">
+                    {adaptivePlanResult.count || 0}
+                  </div>
+
+                </div>
+
+              </div>
+
+              {/* ==================================================
+                  WHY DID THE PLAN CHANGE?
+                  ================================================== */}
+
+              {adaptivePlanResult?.adaptation?.reason && (
+                <div className="mt-4">
+
+                  <p
+                    className={`text-xs font-bold uppercase tracking-wide ${
+                      getAdaptiveModeClasses(
+                        adaptivePlanResult?.adaptation?.mode
+                      ).title
+                    }`}
+                  >
+                    Why did my plan change?
+                  </p>
+
+                  <p
+                    className={`mt-1 text-sm leading-6 ${
+                      getAdaptiveModeClasses(
+                        adaptivePlanResult?.adaptation?.mode
+                      ).text
+                    }`}
+                  >
+                    {
+                      adaptivePlanResult
+                        .adaptation
+                        .reason
+                    }
+                  </p>
+
+                </div>
+              )}
+
+              {/* ==================================================
+                  BACKEND MESSAGE
+                  ================================================== */}
+
+              {adaptivePlanResult.message && (
+                <p className="mt-3 text-xs leading-5 text-gray-500">
+                  {adaptivePlanResult.message}
+                </p>
+              )}
+
+              {/* ==================================================
+                  GENERATED TASKS
+                  ================================================== */}
+
+              {adaptivePlanResult.count > 0 &&
+                Array.isArray(
+                  adaptivePlanResult.tasks
+                ) &&
+                adaptivePlanResult.tasks.length > 0 && (
+                  <div className="mt-5">
+
+                    <p className="text-xs font-bold uppercase tracking-wide text-[#1F6F5F]">
+                      Generated Study Tasks
+                    </p>
+
+                    <div className="mt-3 space-y-2">
+
+                      {adaptivePlanResult.tasks.map(
+                        (task) => (
+                          <div
+                            key={
+                              task.id ||
+                              `${task.material_id}-${task.task_date}`
+                            }
+                            className="rounded-xl border border-white bg-white/80 p-4"
+                          >
+
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+
+                              <div className="min-w-0">
+
+                                <h4 className="text-sm font-bold text-gray-700">
+                                  {task.material_title}
+                                </h4>
+
+                                <p className="mt-1 text-xs text-gray-400">
+                                  Material ID:{" "}
+                                  {task.material_id}
+                                </p>
+
+                              </div>
+
+                              <span
+                                className={`inline-flex w-fit rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
+                                  task.priority ===
+                                  "high"
+                                    ? "bg-red-50 text-red-600"
+                                    : task.priority ===
+                                      "medium"
+                                    ? "bg-orange-50 text-orange-600"
+                                    : "bg-[#6FCF97]/15 text-[#1F6F5F]"
+                                }`}
+                              >
+                                {task.priority ||
+                                  "medium"}
+                              </span>
+
+                            </div>
+
+                            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-gray-500">
+
+                              <span className="flex items-center gap-1.5">
+                                <CalendarDays
+                                  size={13}
+                                />
+                                {formatTaskDate(
+                                  task.task_date
+                                )}
+                              </span>
+
+                              <span className="flex items-center gap-1.5">
+                                <Clock3
+                                  size={13}
+                                />
+                                {task.duration}{" "}
+                                minutes
+                              </span>
+
+                              {task.quiz_score_trend &&
+                                task.quiz_score_trend !==
+                                  "insufficient_data" && (
+                                  <span>
+                                    Trend:{" "}
+                                    <strong className="font-semibold text-gray-600">
+                                      {
+                                        task.quiz_score_trend
+                                      }
+                                    </strong>
+                                  </span>
+                                )}
+
+                              {task.average_quiz_score !==
+                                null &&
+                                task.average_quiz_score !==
+                                  undefined && (
+                                  <span>
+                                    Avg. score:{" "}
+                                    <strong className="font-semibold text-gray-600">
+                                      {
+                                        task.average_quiz_score
+                                      }
+                                      %
+                                    </strong>
+                                  </span>
+                                )}
+
+                            </div>
+
+                            {task.recommended_action && (
+                              <div className="mt-3 rounded-lg bg-[#F8F9F8] px-3 py-2.5">
+
+                                <p className="text-xs font-semibold text-[#1F6F5F]">
+                                  Recommended action
+                                </p>
+
+                                <p className="mt-1 text-xs leading-5 text-gray-500">
+                                  {
+                                    task.recommended_action
+                                  }
+                                </p>
+
+                              </div>
+                            )}
+
+                          </div>
+                        )
+                      )}
+
+                    </div>
+
+                  </div>
+                )}
+
+            </div>
+
+          </div>
+
+        </section>
       )}
 
       {/* ==================================================
@@ -1201,6 +1624,7 @@ function Planner() {
           ================================================== */}
 
       <section className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
+
         <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-medium text-gray-500">
             Total Tasks
@@ -1242,6 +1666,7 @@ function Planner() {
             Tasks still to complete
           </p>
         </div>
+
       </section>
 
       {/* ==================================================
@@ -1249,7 +1674,9 @@ function Planner() {
           ================================================== */}
 
       <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+
         <div className="mb-2 flex items-center justify-between">
+
           <div>
             <h3 className="text-sm font-semibold text-[#1F6F5F]">
               Daily Progress
@@ -1264,16 +1691,20 @@ function Planner() {
           <span className="text-sm font-bold text-[#2FA084]">
             {progress}%
           </span>
+
         </div>
 
         <div className="h-3 overflow-hidden rounded-full bg-[#EEEEEE]">
+
           <div
             className="h-full rounded-full bg-[#2FA084] transition-all duration-500"
             style={{
               width: `${progress}%`,
             }}
           />
+
         </div>
+
       </section>
 
       {/* ==================================================
@@ -1288,7 +1719,9 @@ function Planner() {
 
       {showForm && (
         <section className="mb-5 rounded-2xl border border-[#2FA084]/30 bg-white p-6 shadow-sm">
+
           <div className="mb-5 flex items-start justify-between">
+
             <div>
               <h3 className="text-lg font-bold text-[#1F6F5F]">
                 {editingTaskId
@@ -1310,12 +1743,14 @@ function Planner() {
             >
               <X size={20} />
             </button>
+
           </div>
 
           <form
             onSubmit={handleSubmit}
             className="space-y-5"
           >
+
             <div>
               <label
                 htmlFor="title"
@@ -1364,6 +1799,7 @@ function Planner() {
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+
               <div>
                 <label
                   htmlFor="task_date"
@@ -1420,6 +1856,7 @@ function Planner() {
                 </label>
 
                 <div className="relative">
+
                   <input
                     id="duration"
                     name="duration"
@@ -1438,11 +1875,14 @@ function Planner() {
                   <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-400">
                     minutes
                   </span>
+
                 </div>
               </div>
+
             </div>
 
             <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+
               <button
                 type="button"
                 onClick={closeForm}
@@ -1457,6 +1897,7 @@ function Planner() {
                 disabled={saving}
                 className="flex items-center justify-center gap-2 rounded-xl bg-[#2FA084] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-60"
               >
+
                 {saving ? (
                   <>
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
@@ -1470,9 +1911,13 @@ function Planner() {
                       : "Create Task"}
                   </>
                 )}
+
               </button>
+
             </div>
+
           </form>
+
         </section>
       )}
 
@@ -1481,7 +1926,9 @@ function Planner() {
           ================================================== */}
 
       <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+
         <div className="flex items-center justify-between">
+
           <div>
             <h3 className="text-lg font-bold text-[#1F6F5F]">
               Study Tasks
@@ -1504,10 +1951,12 @@ function Planner() {
               Add Task
             </button>
           )}
+
         </div>
 
         {loading && (
           <div className="mt-6 space-y-4">
+
             {Array.from({
               length: 3,
             }).map((_, index) => (
@@ -1515,21 +1964,27 @@ function Planner() {
                 key={index}
                 className="flex items-center gap-4 rounded-xl border border-gray-100 p-4"
               >
+
                 <div className="h-10 w-10 animate-pulse rounded-full bg-gray-100" />
 
                 <div className="flex-1">
+
                   <div className="h-4 w-2/3 animate-pulse rounded bg-gray-100" />
 
                   <div className="mt-2 h-3 w-1/2 animate-pulse rounded bg-gray-100" />
+
                 </div>
+
               </div>
             ))}
+
           </div>
         )}
 
         {!loading &&
           tasks.length === 0 && (
             <div className="mt-6 rounded-xl bg-[#F8F9F8] px-6 py-14 text-center">
+
               <CalendarDays
                 size={34}
                 className="mx-auto text-gray-300"
@@ -1552,12 +2007,14 @@ function Planner() {
                 <Plus size={17} />
                 Add Your First Task
               </button>
+
             </div>
           )}
 
         {!loading &&
           tasks.length > 0 && (
             <div className="mt-6 space-y-3">
+
               {tasks.map((task) => (
                 <div
                   key={task.id}
@@ -1567,7 +2024,9 @@ function Planner() {
                       : "border-gray-100 bg-white hover:border-gray-200 hover:shadow-sm"
                   }`}
                 >
+
                   <div className="flex items-start gap-3">
+
                     <button
                       onClick={() =>
                         handleToggleComplete(
@@ -1597,6 +2056,7 @@ function Planner() {
                     </button>
 
                     <div className="min-w-0 flex-1">
+
                       <h4
                         className={`text-sm font-semibold ${
                           task.completed
@@ -1622,6 +2082,7 @@ function Planner() {
                       )}
 
                       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-gray-400">
+
                         {task.task_time && (
                           <span className="flex items-center gap-1.5">
                             <Clock3
@@ -1649,10 +2110,13 @@ function Planner() {
                             task.task_date
                           )}
                         </span>
+
                       </div>
+
                     </div>
 
                     <div className="flex shrink-0 items-center gap-1">
+
                       <button
                         onClick={() =>
                           openEditForm(
@@ -1680,12 +2144,17 @@ function Planner() {
                           size={17}
                         />
                       </button>
+
                     </div>
+
                   </div>
+
                 </div>
               ))}
+
             </div>
           )}
+
       </section>
 
       {/* ==================================================
@@ -1701,6 +2170,7 @@ function Planner() {
           Add Study Task
         </button>
       )}
+
     </div>
   );
 }
