@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from sqlalchemy import Boolean, Column, DateTime, Integer, String
 from sqlalchemy.sql import func
 
@@ -30,6 +28,11 @@ class User(Base):
     password_hash = Column(
         String(255),
         nullable=False,
+    )
+
+    profile_image = Column(
+        String(500),
+        nullable=True,
     )
 
     is_active = Column(

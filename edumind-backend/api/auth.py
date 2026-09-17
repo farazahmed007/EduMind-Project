@@ -40,6 +40,10 @@ router = APIRouter(
 )
 
 
+# ==================================================
+# REQUEST MODELS
+# ==================================================
+
 class RegisterRequest(BaseModel):
     name: str = Field(
         min_length=2,
@@ -62,6 +66,19 @@ class LoginRequest(BaseModel):
         max_length=128,
     )
 
+
+class UpdateProfileRequest(BaseModel):
+    name: str = Field(
+        min_length=2,
+        max_length=100,
+    )
+
+    email: EmailStr
+
+
+# ==================================================
+# JWT
+# ==================================================
 
 def create_access_token(
     user_id: int,
@@ -86,6 +103,10 @@ def create_access_token(
 
     return token
 
+
+# ==================================================
+# REGISTER
+# ==================================================
 
 @router.post(
     "/register",
@@ -131,9 +152,14 @@ def register_user(
             "id": user.id,
             "name": user.name,
             "email": user.email,
+            "profile_image": user.profile_image,
         },
     }
 
+
+# ==================================================
+# LOGIN
+# ==================================================
 
 @router.post(
     "/login",
@@ -186,9 +212,14 @@ def login_user(
             "id": user.id,
             "name": user.name,
             "email": user.email,
+            "profile_image": user.profile_image,
         },
     }
 
+
+# ==================================================
+# GET CURRENT USER
+# ==================================================
 
 @router.get(
     "/me",
@@ -201,6 +232,7 @@ def get_my_profile(
             "id": current_user.id,
             "name": current_user.name,
             "email": current_user.email,
+            "profile_image": current_user.profile_image,
             "is_active": current_user.is_active,
             "created_at": (
                 current_user.created_at.isoformat()
@@ -208,4 +240,106 @@ def get_my_profile(
                 else None
             ),
         }
+    }
+
+
+# ==================================================
+# UPDATE CURRENT USER
+# ==================================================
+
+@router.patch(
+    "/me",
+)
+def update_my_profile(
+    request: UpdateProfileRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    normalized_name = request.name.strip()
+    normalized_email = request.email.lower().strip()
+
+
+    # --------------------------------------------------
+    # Validate name after trimming
+    # --------------------------------------------------
+
+    if len(normalized_name) < 2:
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Name must contain at least 2 characters.",
+        )
+
+
+    # --------------------------------------------------
+    # Check whether email belongs to another account
+    # --------------------------------------------------
+
+    existing_user = (
+        db.query(User)
+        .filter(
+            User.email == normalized_email,
+            User.id != current_user.id,
+        )
+        .first()
+    )
+
+    if existing_user:
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email already exists.",
+        )
+
+
+    # --------------------------------------------------
+    # Update profile
+    # --------------------------------------------------
+
+    current_user.name = normalized_name
+    current_user.email = normalized_email
+
+
+    # --------------------------------------------------
+    # Save changes
+    # --------------------------------------------------
+
+    try:
+
+        db.commit()
+        db.refresh(current_user)
+
+    except Exception as error:
+
+        db.rollback()
+
+        print(
+            "Profile update database error:",
+            error,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to update your profile.",
+        )
+
+
+    # --------------------------------------------------
+    # Return updated profile
+    # --------------------------------------------------
+
+    return {
+        "message": "Profile updated successfully.",
+        "user": {
+            "id": current_user.id,
+            "name": current_user.name,
+            "email": current_user.email,
+            "profile_image": current_user.profile_image,
+            "is_active": current_user.is_active,
+            "created_at": (
+                current_user.created_at.isoformat()
+                if current_user.created_at
+                else None
+            ),
+        },
     }

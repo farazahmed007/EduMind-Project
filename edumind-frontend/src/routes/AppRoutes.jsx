@@ -5,13 +5,11 @@ import {
     Routes,
 } from "react-router-dom";
 
-
 import AppLayout from "../components/layout/AppLayout";
 
 import ProtectedRoute from "../components/auth/ProtectedRoute";
 
 import { useAuth } from "../context/AuthContext";
-
 
 import Dashboard from "../pages/Dashboard/Dashboard";
 import Library from "../pages/Library/Library";
@@ -22,6 +20,8 @@ import Analytics from "../pages/Analytics/Analytics";
 import Planner from "../pages/Planner/Planner";
 import Exam from "../pages/Exam/Exam";
 import MaterialDetails from "../pages/Library/MaterialDetails";
+import Settings from "../pages/Settings/Settings";
+import Profile from "../pages/Profile/Profile";
 
 import Login from "../pages/Login/Login";
 import Register from "../pages/Register/Register";
@@ -157,6 +157,16 @@ export default function AppRoutes() {
                         <Route
                             path="/exam"
                             element={<Exam />}
+                        />
+
+                        <Route
+                            path="/settings"
+                            element={<Settings />}
+                        />
+
+                        <Route
+                            path="/profile"
+                            element={<Profile />}
                         />
 
                     </Route>
