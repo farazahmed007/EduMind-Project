@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from services.ai_service import (
     generate_summary,
     ask_tutor,
-    extract_pdf_text,
+    extract_document_text,
     generate_quiz,
     generate_flashcards,
 )
@@ -96,6 +96,60 @@ UPLOAD_DIR.mkdir(
     parents=True,
     exist_ok=True,
 )
+
+
+# --------------------------------------------------
+# Supported AI Document Formats
+# --------------------------------------------------
+
+AI_SUPPORTED_EXTENSIONS = {
+    ".pdf",
+    ".docx",
+    ".pptx",
+    ".txt",
+}
+
+
+# --------------------------------------------------
+# Helper - Check AI Document Support
+# --------------------------------------------------
+
+def validate_ai_document(
+    file_path: Path,
+) -> None:
+
+    suffix = file_path.suffix.lower()
+
+    if suffix in AI_SUPPORTED_EXTENSIONS:
+        return
+
+    if suffix == ".doc":
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "AI document processing does not currently support "
+                "legacy .doc files. Please upload the document as .docx."
+            ),
+        )
+
+    if suffix == ".ppt":
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "AI document processing does not currently support "
+                "legacy .ppt files. Please upload the presentation as .pptx."
+            ),
+        )
+
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            "AI document processing is currently supported for "
+            "PDF, DOCX, PPTX, and TXT files."
+        ),
+    )
 
 
 # --------------------------------------------------
@@ -243,26 +297,35 @@ async def create_material(
     )
 
     # --------------------------------------------------
-    # Build RAG index for PDF files
+    # Build RAG index for supported AI documents
     # --------------------------------------------------
 
-    if material_type == "PDF":
+    if file_path.suffix.lower() in AI_SUPPORTED_EXTENSIONS:
 
         try:
 
-            extracted_text = extract_pdf_text(
+            extracted_text = extract_document_text(
                 str(file_path)
             )
 
-            rag_result = build_vector_store(
-                new_material.id,
-                extracted_text,
-            )
+            if extracted_text.strip():
 
-            print(
-                "RAG vector store created:",
-                rag_result,
-            )
+                rag_result = build_vector_store(
+                    new_material.id,
+                    extracted_text,
+                )
+
+                print(
+                    "RAG vector store created:",
+                    rag_result,
+                )
+
+            else:
+
+                print(
+                    "RAG indexing skipped: "
+                    "No extractable text found."
+                )
 
         except Exception as error:
 
@@ -484,6 +547,10 @@ def generate_material_summary(
             detail="Physical file not found.",
         )
 
+    validate_ai_document(
+        file_path
+    )
+
     try:
 
         summary = generate_summary(
@@ -495,6 +562,9 @@ def generate_material_summary(
             "title": material.title,
             "summary": summary,
         }
+
+    except HTTPException:
+        raise
 
     except Exception as error:
 
@@ -558,15 +628,9 @@ def ask_material_tutor(
             detail="Physical file not found.",
         )
 
-    if material.type != "PDF":
-
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Document-grounded AI Tutor is currently "
-                "available for PDF materials."
-            ),
-        )
+    validate_ai_document(
+        file_path
+    )
 
     try:
 
@@ -579,9 +643,15 @@ def ask_material_tutor(
                 f"{material_id}..."
             )
 
-            extracted_text = extract_pdf_text(
+            extracted_text = extract_document_text(
                 str(file_path)
             )
+
+            if not extracted_text.strip():
+
+                raise RuntimeError(
+                    "No extractable text was found in this material."
+                )
 
             build_vector_store(
                 material_id,
@@ -677,7 +747,7 @@ def generate_material_quiz(
 ):
     """
     Generate a document-grounded multiple-choice quiz
-    from the selected PDF material.
+    from the selected study material.
     """
 
     material = get_user_material(
@@ -693,16 +763,6 @@ def generate_material_quiz(
             detail="File is not available for this material.",
         )
 
-    if material.type != "PDF":
-
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Document-grounded quiz generation is "
-                "currently available for PDF materials."
-            ),
-        )
-
     file_path = (
         BASE_DIR
         / material.file_path
@@ -715,6 +775,10 @@ def generate_material_quiz(
             detail="Physical file not found.",
         )
 
+    validate_ai_document(
+        file_path
+    )
+
     try:
 
         if not vector_store_exists(
@@ -726,9 +790,15 @@ def generate_material_quiz(
                 f"for material {material_id}..."
             )
 
-            extracted_text = extract_pdf_text(
+            extracted_text = extract_document_text(
                 str(file_path)
             )
+
+            if not extracted_text.strip():
+
+                raise RuntimeError(
+                    "No extractable text was found in this material."
+                )
 
             build_vector_store(
                 material_id,
@@ -812,7 +882,7 @@ def generate_material_flashcards(
 ):
     """
     Generate document-grounded flashcards
-    from the selected PDF material.
+    from the selected study material.
     """
 
     # --------------------------------------------------
@@ -833,20 +903,6 @@ def generate_material_flashcards(
         )
 
     # --------------------------------------------------
-    # Flashcards currently support PDFs
-    # --------------------------------------------------
-
-    if material.type != "PDF":
-
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Document-grounded flashcard generation is "
-                "currently available for PDF materials."
-            ),
-        )
-
-    # --------------------------------------------------
     # Physical file
     # --------------------------------------------------
 
@@ -861,6 +917,10 @@ def generate_material_flashcards(
             status_code=404,
             detail="Physical file not found.",
         )
+
+    validate_ai_document(
+        file_path
+    )
 
     try:
 
@@ -877,9 +937,15 @@ def generate_material_flashcards(
                 f"for material {material_id}..."
             )
 
-            extracted_text = extract_pdf_text(
+            extracted_text = extract_document_text(
                 str(file_path)
             )
+
+            if not extracted_text.strip():
+
+                raise RuntimeError(
+                    "No extractable text was found in this material."
+                )
 
             build_vector_store(
                 material_id,

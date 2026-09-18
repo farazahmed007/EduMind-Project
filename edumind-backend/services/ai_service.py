@@ -6,6 +6,8 @@ from urllib.error import URLError, HTTPError
 from difflib import SequenceMatcher
 
 import pymupdf
+from docx import Document
+from pptx import Presentation
 
 
 # ==================================================
@@ -17,7 +19,7 @@ OLLAMA_MODEL = "llama3.2:3b"
 
 
 # ==================================================
-# PDF TEXT EXTRACTION
+# DOCUMENT TEXT EXTRACTION
 # ==================================================
 
 def extract_pdf_text(
@@ -25,6 +27,9 @@ def extract_pdf_text(
 ) -> str:
     """
     Extract all readable text from a PDF file.
+
+    This function is kept as a dedicated PDF helper for
+    backwards compatibility with existing callers.
     """
 
     path = Path(file_path)
@@ -62,6 +67,242 @@ def extract_pdf_text(
         )
 
     return text
+
+
+def extract_docx_text(
+    file_path: str,
+) -> str:
+    """
+    Extract readable paragraph and table text from a DOCX file.
+    """
+
+    path = Path(file_path)
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"DOCX file not found: {file_path}"
+        )
+
+    document = Document(path)
+    text_parts = []
+
+    for paragraph in document.paragraphs:
+
+        paragraph_text = paragraph.text.strip()
+
+        if paragraph_text:
+            text_parts.append(paragraph_text)
+
+    for table in document.tables:
+
+        for row in table.rows:
+
+            cells = [
+                cell.text.strip()
+                for cell in row.cells
+                if cell.text.strip()
+            ]
+
+            if cells:
+                text_parts.append(
+                    " | ".join(cells)
+                )
+
+    text = "\n".join(
+        text_parts
+    ).strip()
+
+    if not text:
+
+        raise ValueError(
+            "No readable text could be extracted from this DOCX file."
+        )
+
+    return text
+
+
+def extract_pptx_text(
+    file_path: str,
+) -> str:
+    """
+    Extract readable text from all slides in a PPT/PPTX file.
+    """
+
+    path = Path(file_path)
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"PowerPoint file not found: {file_path}"
+        )
+
+    presentation = Presentation(path)
+    text_parts = []
+
+    for slide_number, slide in enumerate(
+        presentation.slides,
+        start=1,
+    ):
+
+        slide_parts = []
+
+        for shape in slide.shapes:
+
+            if not hasattr(shape, "text"):
+                continue
+
+            shape_text = str(
+                shape.text
+            ).strip()
+
+            if shape_text:
+                slide_parts.append(
+                    shape_text
+                )
+
+        if slide_parts:
+
+            text_parts.append(
+                f"Slide {slide_number}\n"
+                + "\n".join(slide_parts)
+            )
+
+    text = "\n\n".join(
+        text_parts
+    ).strip()
+
+    if not text:
+
+        raise ValueError(
+            "No readable text could be extracted from this PowerPoint file."
+        )
+
+    return text
+
+
+def extract_txt_text(
+    file_path: str,
+) -> str:
+    """
+    Extract readable text from a TXT file.
+    """
+
+    path = Path(file_path)
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Text file not found: {file_path}"
+        )
+
+    encodings = [
+        "utf-8",
+        "utf-8-sig",
+        "cp1252",
+        "latin-1",
+    ]
+
+    text = None
+
+    for encoding in encodings:
+
+        try:
+
+            text = path.read_text(
+                encoding=encoding
+            )
+
+            break
+
+        except UnicodeDecodeError:
+
+            continue
+
+    if text is None:
+
+        raise ValueError(
+            "Could not decode this text file."
+        )
+
+    text = text.strip()
+
+    if not text:
+
+        raise ValueError(
+            "No readable text could be extracted from this TXT file."
+        )
+
+    return text
+
+
+def extract_document_text(
+    file_path: str,
+) -> str:
+    """
+    Extract readable text from supported study-material formats.
+
+    Supported formats:
+    - PDF
+    - DOC
+    - DOCX
+    - PPT
+    - PPTX
+    - TXT
+
+    Legacy binary DOC and PPT files are not directly supported by
+    python-docx/python-pptx. They are recognized so callers receive
+    a clear error instead of silently treating them as unsupported
+    text.
+    """
+
+    path = Path(file_path)
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Document file not found: {file_path}"
+        )
+
+    extension = path.suffix.lower()
+
+    if extension == ".pdf":
+        return extract_pdf_text(
+            str(path)
+        )
+
+    if extension in {
+        ".docx",
+    }:
+        return extract_docx_text(
+            str(path)
+        )
+
+    if extension in {
+        ".pptx",
+        ".ppt",
+    }:
+
+        if extension == ".ppt":
+            raise ValueError(
+                "Legacy .ppt files are not directly supported for text extraction. "
+                "Please convert the presentation to .pptx."
+            )
+
+        return extract_pptx_text(
+            str(path)
+        )
+
+    if extension == ".doc":
+        raise ValueError(
+            "Legacy .doc files are not directly supported for text extraction. "
+            "Please convert the document to .docx."
+        )
+
+    if extension == ".txt":
+        return extract_txt_text(
+            str(path)
+        )
+
+    raise ValueError(
+        f"Unsupported document type: {extension or 'unknown'}"
+    )
 
 
 # ==================================================
@@ -170,10 +411,10 @@ def generate_summary(
     file_path: str,
 ) -> str:
     """
-    Generate an AI summary from a PDF.
+    Generate an AI summary from supported study-material formats.
     """
 
-    text = extract_pdf_text(
+    text = extract_document_text(
         file_path
     )
 
