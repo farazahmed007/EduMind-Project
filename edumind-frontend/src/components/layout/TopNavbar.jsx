@@ -5,6 +5,8 @@ import {
   Search,
   ChevronDown,
   LogOut,
+  UserRound,
+  Settings,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
@@ -20,6 +22,7 @@ export default function TopNavbar() {
     user,
     logout,
   } = useAuth();
+
 
   const [profileOpen, setProfileOpen] = useState(false);
 
@@ -42,6 +45,22 @@ export default function TopNavbar() {
     : null;
 
 
+  // --------------------------------------------------
+  // Navigation
+  // --------------------------------------------------
+
+  const handleProfile = () => {
+    setProfileOpen(false);
+    navigate("/profile");
+  };
+
+
+  const handleSettings = () => {
+    setProfileOpen(false);
+    navigate("/settings");
+  };
+
+
   const handleLogout = () => {
     logout();
 
@@ -57,66 +76,128 @@ export default function TopNavbar() {
 
 
   return (
-    <header className="flex h-[76px] items-center border-b border-gray-200 bg-white px-6">
+    <header className="relative z-40 flex h-[76px] shrink-0 items-center border-b border-[#e4ebe8] bg-white/95 px-4 backdrop-blur-xl sm:px-6">
 
+      {/* ================================================== */}
       {/* Left Section */}
-      <div className="flex items-center gap-4">
+      {/* ================================================== */}
+
+      <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+
+        {/* Menu */}
 
         <button
-          className="flex h-10 w-10 items-center justify-center rounded-xl text-[#1F6F5F] transition hover:bg-[#6FCF97]/20"
+          type="button"
+          className="group flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[#53635d] transition-all duration-200 hover:bg-[#f2f7f5] hover:text-[#1f6f5f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6fcf97]/40"
           aria-label="Open menu"
         >
-          <Menu size={22} />
+
+          <Menu
+            size={21}
+            strokeWidth={2}
+            className="transition-transform duration-200 group-hover:scale-105"
+          />
+
         </button>
 
-        <h2 className="text-lg font-semibold text-[#1F6F5F]">
-          Dashboard
-        </h2>
 
-      </div>
+        {/* Page Title */}
 
+        <div className="hidden min-w-0 sm:block">
 
-      {/* Search */}
-      <div className="mx-auto w-full max-w-[520px]">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#94a39d]">
+            Workspace
+          </p>
 
-        <div className="relative">
-
-          <Search
-            size={19}
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
-          />
-
-          <input
-            type="text"
-            placeholder="Search topics, notes, quizzes..."
-            className="h-11 w-full rounded-full border border-gray-200 bg-[#EEEEEE]/40 pl-11 pr-4 text-sm text-gray-700 outline-none transition placeholder:text-gray-400 focus:border-[#2FA084] focus:ring-2 focus:ring-[#6FCF97]/30"
-          />
+          <h2 className="truncate text-[17px] font-bold tracking-[-0.01em] text-[#176b5b]">
+            Dashboard
+          </h2>
 
         </div>
 
       </div>
 
 
-      {/* Right Section */}
-      <div className="flex items-center gap-4">
+      {/* ================================================== */}
+      {/* Search */}
+      {/* ================================================== */}
 
+      <div className="mx-3 flex min-w-0 flex-1 justify-center sm:mx-auto sm:px-6">
+
+        <div className="relative w-full max-w-[560px]">
+
+          <Search
+            size={18}
+            strokeWidth={2}
+            className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#8b9994]"
+          />
+
+
+          <input
+            type="text"
+            placeholder="Search topics, notes, quizzes..."
+            aria-label="Search EduMind"
+            className="h-11 w-full rounded-xl border border-[#e1e9e5] bg-[#f7faf9] pl-11 pr-16 text-sm font-medium text-[#17211e] outline-none transition-all duration-200 placeholder:text-[#9aa7a2] hover:border-[#cddbd5] hover:bg-white focus:border-[#6fcf97] focus:bg-white focus:ring-4 focus:ring-[#6fcf97]/10"
+          />
+
+
+          {/* Keyboard Hint */}
+
+          <div className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 items-center gap-1 sm:flex">
+
+            <kbd className="rounded-md border border-[#dce5e1] bg-white px-1.5 py-0.5 text-[10px] font-semibold text-[#899690] shadow-sm">
+              /
+            </kbd>
+
+          </div>
+
+        </div>
+
+      </div>
+
+
+      {/* ================================================== */}
+      {/* Right Section */}
+      {/* ================================================== */}
+
+      <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
+
+
+        {/* ================================================== */}
         {/* Notifications */}
+        {/* ================================================== */}
+
         <button
-          className="relative flex h-10 w-10 items-center justify-center rounded-xl text-[#1F6F5F] transition hover:bg-[#6FCF97]/20"
+          type="button"
+          className="group relative flex h-10 w-10 items-center justify-center rounded-xl text-[#53635d] transition-all duration-200 hover:bg-[#f2f7f5] hover:text-[#1f6f5f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6fcf97]/40"
           aria-label="Notifications"
         >
 
-          <Bell size={21} />
+          <Bell
+            size={20}
+            strokeWidth={2}
+            className="transition-transform duration-200 group-hover:scale-105"
+          />
+
 
           {/* Notification Badge */}
-          <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#2FA084] px-1 text-[10px] font-bold text-white">
+
+          <span className="absolute right-1 top-1 flex h-[17px] min-w-[17px] items-center justify-center rounded-full border-2 border-white bg-[#2fa084] px-1 text-[9px] font-bold leading-none text-white shadow-sm">
             3
           </span>
 
         </button>
 
 
+        {/* Divider */}
+
+        <div className="mx-1 hidden h-7 w-px bg-[#e8eeeb] sm:block" />
+
+
+        {/* ================================================== */}
         {/* Profile Menu */}
+        {/* ================================================== */}
+
         <div className="relative">
 
           <button
@@ -126,13 +207,14 @@ export default function TopNavbar() {
                 (previous) => !previous
               )
             }
-            className="flex items-center gap-3 rounded-xl px-2 py-1.5 transition hover:bg-[#6FCF97]/20"
+            className="group flex items-center gap-2 rounded-xl px-1.5 py-1.5 transition-all duration-200 hover:bg-[#f2f7f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6fcf97]/40 sm:gap-3 sm:px-2"
             aria-expanded={profileOpen}
             aria-haspopup="menu"
           >
 
             {/* Avatar */}
-            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-[#6FCF97]/30 text-[#1F6F5F]">
+
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#cdeee1] bg-[#e5f5ee] text-[#1f6f5f] shadow-sm transition-transform duration-200 group-hover:scale-[1.03]">
 
               {profileImageUrl ? (
 
@@ -144,7 +226,7 @@ export default function TopNavbar() {
 
               ) : (
 
-                <span className="text-sm font-bold">
+                <span className="text-xs font-bold tracking-wide">
                   {initials}
                 </span>
 
@@ -154,18 +236,26 @@ export default function TopNavbar() {
 
 
             {/* User Info */}
-            <div className="hidden text-left sm:block">
 
-              <p className="text-sm font-semibold text-gray-800">
+            <div className="hidden max-w-[140px] text-left lg:block">
+
+              <p className="truncate text-sm font-semibold text-[#25322e]">
                 {displayName}
+              </p>
+
+              <p className="truncate text-[11px] font-medium text-[#8a9892]">
+                Account
               </p>
 
             </div>
 
 
+            {/* Chevron */}
+
             <ChevronDown
-              size={17}
-              className={`text-gray-500 transition-transform ${
+              size={16}
+              strokeWidth={2}
+              className={`hidden text-[#82908a] transition-transform duration-200 sm:block ${
                 profileOpen
                   ? "rotate-180"
                   : ""
@@ -175,44 +265,134 @@ export default function TopNavbar() {
           </button>
 
 
-          {/* Dropdown */}
+          {/* ================================================== */}
+          {/* Profile Dropdown */}
+          {/* ================================================== */}
+
           {profileOpen && (
+
             <div
-              className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg"
+              className="absolute right-0 top-full z-50 mt-3 w-[280px] overflow-hidden rounded-2xl border border-[#dfe8e4] bg-white shadow-[0_18px_50px_rgba(23,33,30,0.12)]"
               role="menu"
             >
 
-              <div className="border-b border-gray-100 px-4 py-3">
+              {/* Account Header */}
 
-                <p className="truncate text-sm font-semibold text-gray-800">
-                  {displayName}
-                </p>
+              <div className="bg-gradient-to-br from-[#f3faf7] to-white px-4 pb-4 pt-4">
 
-                <p className="mt-1 truncate text-xs text-gray-500">
-                  {user?.email || ""}
-                </p>
+                <div className="flex items-center gap-3">
+
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-[#e5f5ee] text-[#1f6f5f] shadow-md">
+
+                    {profileImageUrl ? (
+
+                      <img
+                        src={profileImageUrl}
+                        alt={`${displayName}'s profile`}
+                        className="h-full w-full object-cover"
+                      />
+
+                    ) : (
+
+                      <span className="text-sm font-bold">
+                        {initials}
+                      </span>
+
+                    )}
+
+                  </div>
+
+
+                  <div className="min-w-0">
+
+                    <p className="truncate text-sm font-bold text-[#17211e]">
+                      {displayName}
+                    </p>
+
+                    <p className="mt-0.5 truncate text-xs text-[#7b8984]">
+                      {user?.email || ""}
+                    </p>
+
+                  </div>
+
+                </div>
 
               </div>
 
 
-              <div className="p-2">
+              {/* Menu Items */}
+
+              <div className="border-t border-[#edf1ef] p-2">
+
+                <button
+                  type="button"
+                  onClick={handleProfile}
+                  className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-[#53635d] transition-colors duration-150 hover:bg-[#f2f7f5] hover:text-[#1f6f5f]"
+                  role="menuitem"
+                >
+
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#f4f8f6] text-[#71817b] transition-colors group-hover:bg-[#e5f5ee] group-hover:text-[#2fa084]">
+
+                    <UserRound size={16} />
+
+                  </span>
+
+                  <span className="flex-1 text-left">
+                    My Profile
+                  </span>
+
+                </button>
+
+
+                <button
+                  type="button"
+                  onClick={handleSettings}
+                  className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-[#53635d] transition-colors duration-150 hover:bg-[#f2f7f5] hover:text-[#1f6f5f]"
+                  role="menuitem"
+                >
+
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#f4f8f6] text-[#71817b] transition-colors group-hover:bg-[#e5f5ee] group-hover:text-[#2fa084]">
+
+                    <Settings size={16} />
+
+                  </span>
+
+                  <span className="flex-1 text-left">
+                    Settings
+                  </span>
+
+                </button>
+
+              </div>
+
+
+              {/* Logout */}
+
+              <div className="border-t border-[#edf1ef] p-2">
 
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-red-600 transition hover:bg-red-50"
+                  className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-[#c94b4b] transition-colors duration-150 hover:bg-[#fff3f3]"
                   role="menuitem"
                 >
 
-                  <LogOut size={17} />
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#fff5f5] text-[#c94b4b] transition-colors group-hover:bg-[#ffe9e9]">
 
-                  Logout
+                    <LogOut size={16} />
+
+                  </span>
+
+                  <span className="flex-1 text-left">
+                    Logout
+                  </span>
 
                 </button>
 
               </div>
 
             </div>
+
           )}
 
         </div>

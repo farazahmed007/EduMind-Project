@@ -10,11 +10,40 @@ import {
   FileText,
   Loader2,
   AlertCircle,
+  CheckCircle2,
+  Brain,
+  Zap,
+  Target,
+  ArrowRight,
 } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 
 import { useAuth } from "../../context/AuthContext";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
+
+const CARD_OPTIONS = [5, 10, 15, 20];
+
+const DIFFICULTY_OPTIONS = [
+  {
+    value: "easy",
+    label: "Easy",
+    description: "Quick recall",
+    icon: Zap,
+  },
+  {
+    value: "medium",
+    label: "Medium",
+    description: "Balanced review",
+    icon: Target,
+  },
+  {
+    value: "hard",
+    label: "Hard",
+    description: "Deep recall",
+    icon: Brain,
+  },
+];
 
 export default function Flashcards() {
   const { token } = useAuth();
@@ -26,6 +55,7 @@ export default function Flashcards() {
   const [selectedMaterialId, setSelectedMaterialId] = useState("");
   const [numCards, setNumCards] = useState(5);
   const [difficulty, setDifficulty] = useState("medium");
+
   const analyticsRecordedRef = useRef(false);
 
   const [flashcards, setFlashcards] = useState([]);
@@ -35,9 +65,6 @@ export default function Flashcards() {
   const [generationLoading, setGenerationLoading] = useState(false);
   const [generationError, setGenerationError] = useState("");
 
-  // --------------------------------------------------
-  // Authentication headers
-  // --------------------------------------------------
   const authHeaders = useMemo(
     () => ({
       Authorization: `Bearer ${token}`,
@@ -45,9 +72,6 @@ export default function Flashcards() {
     [token]
   );
 
-  // --------------------------------------------------
-  // Load available materials
-  // --------------------------------------------------
   useEffect(() => {
     if (!token) {
       return;
@@ -72,9 +96,7 @@ export default function Flashcards() {
             );
           }
 
-          throw new Error(
-            "Failed to load study materials."
-          );
+          throw new Error("Failed to load study materials.");
         }
 
         const data = await response.json();
@@ -91,10 +113,7 @@ export default function Flashcards() {
           setSelectedMaterialId(String(data[0].id));
         }
       } catch (error) {
-        console.error(
-          "Error loading materials:",
-          error
-        );
+        console.error("Error loading materials:", error);
 
         setMaterialsError(
           error.message ||
@@ -108,9 +127,6 @@ export default function Flashcards() {
     fetchMaterials();
   }, [token, authHeaders]);
 
-  // --------------------------------------------------
-  // Selected material
-  // --------------------------------------------------
   const selectedMaterial = useMemo(
     () =>
       materials.find(
@@ -121,9 +137,6 @@ export default function Flashcards() {
     [materials, selectedMaterialId]
   );
 
-  // --------------------------------------------------
-  // Current flashcard
-  // --------------------------------------------------
   const currentFlashcard =
     flashcards[currentIndex] || null;
 
@@ -132,9 +145,16 @@ export default function Flashcards() {
       ? ((currentIndex + 1) / flashcards.length) * 100
       : 0;
 
-  // --------------------------------------------------
-  // Record completed flashcard session for Analytics
-  // --------------------------------------------------
+  const isLastCard =
+    flashcards.length > 0 &&
+    currentIndex === flashcards.length - 1;
+
+  const resetStudyState = () => {
+    setFlashcards([]);
+    setCurrentIndex(0);
+    setRevealed(false);
+  };
+
   const recordFlashcardAnalytics = async (
     cardsReviewed
   ) => {
@@ -180,9 +200,6 @@ export default function Flashcards() {
     }
   };
 
-  // --------------------------------------------------
-  // Generate flashcards
-  // --------------------------------------------------
   const handleGenerateFlashcards = async () => {
     if (!selectedMaterialId || generationLoading) {
       return;
@@ -191,9 +208,7 @@ export default function Flashcards() {
     setGenerationLoading(true);
     setGenerationError("");
     analyticsRecordedRef.current = false;
-    setFlashcards([]);
-    setCurrentIndex(0);
-    setRevealed(false);
+    resetStudyState();
 
     try {
       const response = await fetch(
@@ -216,8 +231,7 @@ export default function Flashcards() {
           "Failed to generate flashcards.";
 
         try {
-          const errorData =
-            await response.json();
+          const errorData = await response.json();
 
           if (response.status === 401) {
             errorMessage =
@@ -275,9 +289,6 @@ export default function Flashcards() {
     }
   };
 
-  // --------------------------------------------------
-  // Reveal answer
-  // --------------------------------------------------
   const handleReveal = () => {
     if (!currentFlashcard) {
       return;
@@ -285,16 +296,13 @@ export default function Flashcards() {
 
     setRevealed(true);
 
-    if (currentIndex === flashcards.length - 1) {
+    if (isLastCard) {
       void recordFlashcardAnalytics(
         flashcards.length
       );
     }
   };
 
-  // --------------------------------------------------
-  // Next card
-  // --------------------------------------------------
   const handleNext = () => {
     if (
       !flashcards.length ||
@@ -309,9 +317,6 @@ export default function Flashcards() {
     setRevealed(false);
   };
 
-  // --------------------------------------------------
-  // Previous card
-  // --------------------------------------------------
   const handlePrevious = () => {
     if (
       !flashcards.length ||
@@ -326,145 +331,280 @@ export default function Flashcards() {
     setRevealed(false);
   };
 
-  // --------------------------------------------------
-  // Reset / new set
-  // --------------------------------------------------
   const handleNewSet = () => {
-    setFlashcards([]);
-    setCurrentIndex(0);
-    setRevealed(false);
+    resetStudyState();
     setGenerationError("");
+    analyticsRecordedRef.current = false;
   };
 
-  // --------------------------------------------------
-  // Loading state
-  // --------------------------------------------------
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (!currentFlashcard || generationLoading) {
+        return;
+      }
+
+      if (
+        event.key === " " ||
+        event.key === "Enter"
+      ) {
+        event.preventDefault();
+
+        if (!revealed) {
+          handleReveal();
+        }
+      }
+
+      if (
+        event.key === "ArrowRight" &&
+        revealed &&
+        !isLastCard
+      ) {
+        handleNext();
+      }
+
+      if (
+        event.key === "ArrowLeft" &&
+        currentIndex > 0
+      ) {
+        handlePrevious();
+      }
+    };
+
+    window.addEventListener(
+      "keydown",
+      handleKeyDown
+    );
+
+    return () =>
+      window.removeEventListener(
+        "keydown",
+        handleKeyDown
+      );
+  }, [
+    currentFlashcard,
+    generationLoading,
+    revealed,
+    currentIndex,
+    isLastCard,
+  ]);
+
   if (materialsLoading) {
     return (
-      <div className="min-h-full bg-[#EEEEEE] px-4 py-6 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <div className="rounded-2xl border border-gray-200 bg-white p-10 text-center shadow-sm">
-            <Loader2
-              size={28}
-              className="mx-auto animate-spin text-[#2FA084]"
-            />
+      <div className="min-h-full bg-[#f4f7f6]">
+        <div className="mx-auto w-full max-w-[1500px] px-4 pb-12 pt-6 sm:px-6 lg:px-8">
+          <div className="flex min-h-[620px] items-center justify-center">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="w-full max-w-md rounded-[28px] border border-[#dfeae5] bg-white p-10 text-center shadow-[0_12px_40px_rgba(23,33,30,0.05)]"
+            >
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#e8f6f0] text-[#2fa084]">
+                <Loader2
+                  size={28}
+                  className="animate-spin"
+                />
+              </div>
 
-            <p className="mt-4 text-sm text-gray-500">
-              Loading your study materials...
-            </p>
+              <h2 className="mt-5 text-lg font-bold text-[#23453d]">
+                Loading your library
+              </h2>
+
+              <p className="mt-2 text-sm font-medium leading-6 text-[#84918c]">
+                Preparing your study materials for
+                flashcard generation.
+              </p>
+            </motion.div>
           </div>
         </div>
       </div>
     );
   }
 
-  // --------------------------------------------------
-  // Materials load error
-  // --------------------------------------------------
   if (materialsError) {
     return (
-      <div className="min-h-full bg-[#EEEEEE] px-4 py-6 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-10 text-center shadow-sm">
-            <AlertCircle
-              size={32}
-              className="mx-auto text-red-500"
-            />
+      <div className="min-h-full bg-[#f4f7f6]">
+        <div className="mx-auto w-full max-w-[1500px] px-4 pb-12 pt-6 sm:px-6 lg:px-8">
+          <div className="flex min-h-[620px] items-center justify-center">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="w-full max-w-lg rounded-[28px] border border-[#f0d8d8] bg-white p-10 text-center shadow-[0_12px_40px_rgba(23,33,30,0.05)]"
+            >
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#fff0f0] text-[#c96363]">
+                <AlertCircle size={30} />
+              </div>
 
-            <h2 className="mt-4 text-lg font-semibold text-red-700">
-              Unable to load Flashcards
-            </h2>
+              <h2 className="mt-5 text-xl font-bold text-[#8f4c4c]">
+                Unable to load Flashcards
+              </h2>
 
-            <p className="mt-2 text-sm text-red-600">
-              {materialsError}
-            </p>
+              <p className="mt-2 text-sm font-medium leading-6 text-[#a86868]">
+                {materialsError}
+              </p>
+            </motion.div>
           </div>
         </div>
       </div>
     );
   }
 
-  // --------------------------------------------------
-  // No materials
-  // --------------------------------------------------
   if (materials.length === 0) {
     return (
-      <div className="min-h-full bg-[#EEEEEE] px-4 py-6 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <div className="rounded-2xl border border-gray-200 bg-white p-12 text-center shadow-sm">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#6FCF97]/20 text-[#1F6F5F]">
-              <BookOpen size={30} />
-            </div>
+      <div className="min-h-full bg-[#f4f7f6]">
+        <div className="mx-auto w-full max-w-[1500px] px-4 pb-12 pt-6 sm:px-6 lg:px-8">
+          <div className="flex min-h-[620px] items-center justify-center">
+            <motion.div
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="w-full max-w-xl rounded-[30px] border border-[#dfeae5] bg-white p-10 text-center shadow-[0_12px_40px_rgba(23,33,30,0.05)] sm:p-14"
+            >
+              <div className="relative mx-auto flex h-20 w-20 items-center justify-center rounded-[24px] border border-[#cdeee1] bg-[#e8f6f0] text-[#1f6f5f]">
+                <Layers3 size={34} />
+                <span className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-[#2fa084] text-white">
+                  <Sparkles
+                    size={10}
+                    strokeWidth={2.5}
+                  />
+                </span>
+              </div>
 
-            <h1 className="mt-5 text-2xl font-bold text-[#1F6F5F]">
-              No Study Materials Yet
-            </h1>
+              <p className="mt-6 text-[10px] font-bold uppercase tracking-[0.16em] text-[#8ba097]">
+                Start your revision
+              </p>
 
-            <p className="mx-auto mt-2 max-w-lg text-sm text-gray-500">
-              Upload a study material in the Learning Library
-              first. EduMind will use it to generate revision
-              flashcards.
-            </p>
+              <h1 className="mt-2 text-2xl font-bold tracking-tight text-[#176b5b] sm:text-3xl">
+                No study materials yet
+              </h1>
+
+              <p className="mx-auto mt-3 max-w-md text-sm font-medium leading-6 text-[#7d8b86]">
+                Upload a study material in the Learning
+                Library first. EduMind will use it to
+                generate document-grounded revision
+                flashcards.
+              </p>
+            </motion.div>
           </div>
         </div>
       </div>
     );
   }
 
-  // --------------------------------------------------
-  // Main UI
-  // --------------------------------------------------
   return (
-    <div className="min-h-full bg-[#EEEEEE] px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl">
-        {/* Page heading */}
-        <div className="mb-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#6FCF97]/20 text-[#1F6F5F]">
-              <Layers3 size={25} />
+    <div className="min-h-full bg-[#f4f7f6]">
+      <div className="mx-auto w-full max-w-[1500px] px-4 pb-12 pt-5 sm:px-6 sm:pt-6 lg:px-8 xl:px-10">
+        <motion.section
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative overflow-hidden rounded-[28px] border border-[#dfeae5] bg-gradient-to-br from-white via-white to-[#f0faf6] px-5 py-6 shadow-[0_8px_32px_rgba(23,33,30,0.045)] sm:px-7 sm:py-7 lg:px-8"
+        >
+          <div className="pointer-events-none absolute -right-20 -top-28 h-64 w-64 rounded-full bg-[#6fcf97]/10 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-28 left-1/3 h-56 w-56 rounded-full bg-[#cdeee1]/25 blur-3xl" />
+
+          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-start gap-4">
+              <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[#cdeee1] bg-[#e8f6f0] text-[#1f6f5f] shadow-sm">
+                <Layers3
+                  size={25}
+                  strokeWidth={2}
+                />
+
+                <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[#2fa084] text-white shadow-sm">
+                  <Sparkles
+                    size={9}
+                    strokeWidth={2.5}
+                  />
+                </span>
+              </div>
+
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#7c938a]">
+                    Active learning
+                  </span>
+
+                  <span className="h-1 w-1 rounded-full bg-[#a9dfcc]" />
+
+                  <span className="text-[10px] font-semibold text-[#2fa084]">
+                    AI-generated revision
+                  </span>
+                </div>
+
+                <h1 className="text-[26px] font-bold tracking-[-0.035em] text-[#176b5b] sm:text-[30px]">
+                  Flashcards
+                </h1>
+
+                <p className="mt-1 max-w-2xl text-sm font-medium leading-5 text-[#7b8984]">
+                  Turn your study material into focused
+                  recall practice that helps concepts stick.
+                </p>
+              </div>
             </div>
 
-            <div>
-              <h1 className="text-2xl font-bold text-[#1F6F5F]">
-                Flashcards
-              </h1>
+            <div className="hidden shrink-0 items-center gap-3 rounded-2xl border border-[#dfeae5] bg-white/85 px-4 py-3 shadow-sm backdrop-blur-sm md:flex">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#e8f6f0] text-[#2fa084]">
+                <Brain size={17} />
+              </div>
 
-              <p className="mt-1 text-sm text-gray-500">
-                Turn your study materials into quick revision
-                cards.
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#98a6a1]">
+                  Learning mode
+                </p>
+                <p className="mt-0.5 text-xs font-semibold text-[#53635d]">
+                  Active recall
+                </p>
+              </div>
+            </div>
+          </div>
+        </motion.section>
+
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.06 }}
+          className="mt-6 overflow-hidden rounded-[28px] border border-[#dfeae5] bg-white shadow-[0_8px_32px_rgba(23,33,30,0.045)]"
+        >
+          <div className="border-b border-[#edf2ef] px-5 py-5 sm:px-7">
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#e8f6f0] text-[#2fa084]">
+                  <Sparkles
+                    size={15}
+                    strokeWidth={2.2}
+                  />
+                </div>
+
+                <h2 className="text-base font-bold text-[#30443e]">
+                  Create a flashcard set
+                </h2>
+              </div>
+
+              <p className="pl-10 text-xs font-medium leading-5 text-[#89958f]">
+                Configure your revision session and let
+                EduMind generate cards directly from your
+                material.
               </p>
             </div>
           </div>
-        </div>
 
-        {/* Generation controls */}
-        <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-2">
-            <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-800">
-              <Sparkles
-                size={19}
-                className="text-[#2FA084]"
-              />
-              Create a Flashcard Set
-            </h2>
+          <div className="p-5 sm:p-7">
+            <div>
+              <div className="mb-2.5 flex items-center justify-between gap-3">
+                <label className="text-xs font-bold uppercase tracking-[0.08em] text-[#71827b]">
+                  Study material
+                </label>
 
-            <p className="text-sm text-gray-500">
-              Choose a material and let EduMind generate
-              document-grounded revision cards.
-            </p>
-          </div>
-
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
-            {/* Material */}
-            <div className="md:col-span-3">
-              <label className="mb-2 block text-sm font-semibold text-gray-700">
-                Study Material
-              </label>
+                {selectedMaterial && (
+                  <span className="max-w-[55%] truncate rounded-full bg-[#f1f7f4] px-2.5 py-1 text-[10px] font-semibold text-[#658078]">
+                    {selectedMaterial.type ||
+                      "Material"}
+                  </span>
+                )}
+              </div>
 
               <div className="relative">
                 <FileText
-                  size={18}
-                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#2FA084]"
+                  size={17}
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#2fa084]"
                 />
 
                 <select
@@ -473,13 +613,12 @@ export default function Flashcards() {
                     setSelectedMaterialId(
                       event.target.value
                     );
-                    setFlashcards([]);
-                    setCurrentIndex(0);
-                    setRevealed(false);
+                    resetStudyState();
                     setGenerationError("");
-                    analyticsRecordedRef.current = false;
+                    analyticsRecordedRef.current =
+                      false;
                   }}
-                  className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-11 py-3 text-sm text-gray-700 outline-none transition focus:border-[#2FA084] focus:ring-2 focus:ring-[#6FCF97]/30"
+                  className="w-full appearance-none rounded-xl border border-[#dfe8e4] bg-[#fbfcfc] px-11 py-3.5 pr-11 text-sm font-medium text-[#43534d] outline-none transition-all duration-200 hover:border-[#c7dcd4] focus:border-[#2fa084] focus:bg-white focus:ring-4 focus:ring-[#6fcf97]/15"
                 >
                   {materials.map((material) => (
                     <option
@@ -490,167 +629,304 @@ export default function Flashcards() {
                     </option>
                   ))}
                 </select>
+
+                <ChevronRight
+                  size={17}
+                  className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 rotate-90 text-[#8b9b95]"
+                />
               </div>
 
               {selectedMaterial && (
-                <p className="mt-2 text-xs text-gray-400">
-                  {selectedMaterial.type || "Material"}{" "}
+                <p className="mt-2 text-[11px] font-medium text-[#9aa6a1]">
+                  {selectedMaterial.title}
                   {selectedMaterial.size
-                    ? `• ${selectedMaterial.size}`
+                    ? ` • ${selectedMaterial.size}`
                     : ""}
                 </p>
               )}
             </div>
 
-            {/* Number of cards */}
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-gray-700">
-                Number of Cards
-              </label>
+            <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_1.4fr]">
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <label className="text-xs font-bold uppercase tracking-[0.08em] text-[#71827b]">
+                    Number of cards
+                  </label>
 
-              <select
-                value={numCards}
-                onChange={(event) =>
-                  setNumCards(
-                    Number(event.target.value)
-                  )
-                }
-                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none transition focus:border-[#2FA084] focus:ring-2 focus:ring-[#6FCF97]/30"
-              >
-                {[5, 10, 15, 20].map((count) => (
-                  <option
-                    key={count}
-                    value={count}
-                  >
-                    {count} cards
-                  </option>
-                ))}
-              </select>
+                  <span className="rounded-full bg-[#e8f6f0] px-2.5 py-1 text-[10px] font-bold text-[#2fa084]">
+                    {numCards} cards
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-4 gap-2">
+                  {CARD_OPTIONS.map((count) => {
+                    const active =
+                      numCards === count;
+
+                    return (
+                      <button
+                        key={count}
+                        type="button"
+                        onClick={() =>
+                          setNumCards(count)
+                        }
+                        className={`
+                          rounded-xl border px-2 py-3
+                          text-sm font-bold
+                          transition-all duration-200
+                          ${
+                            active
+                              ? "border-[#9bd9c2] bg-[#e8f6f0] text-[#1f6f5f] shadow-[inset_0_0_0_1px_rgba(47,160,132,0.08)]"
+                              : "border-[#e4ebe8] bg-white text-[#788781] hover:border-[#c9ddd5] hover:bg-[#f8fbfa] hover:text-[#1f6f5f]"
+                          }
+                        `}
+                      >
+                        {count}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-3">
+                  <label className="text-xs font-bold uppercase tracking-[0.08em] text-[#71827b]">
+                    Difficulty
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  {DIFFICULTY_OPTIONS.map(
+                    (option) => {
+                      const Icon = option.icon;
+                      const active =
+                        difficulty === option.value;
+
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() =>
+                            setDifficulty(
+                              option.value
+                            )
+                          }
+                          className={`
+                            group rounded-xl border p-3 text-left
+                            transition-all duration-200
+                            ${
+                              active
+                                ? "border-[#9bd9c2] bg-[#e8f6f0] shadow-[inset_0_0_0_1px_rgba(47,160,132,0.08)]"
+                                : "border-[#e4ebe8] bg-white hover:border-[#c9ddd5] hover:bg-[#f8fbfa]"
+                            }
+                          `}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <span
+                              className={`
+                                flex h-8 w-8 shrink-0 items-center justify-center rounded-lg
+                                transition-colors
+                                ${
+                                  active
+                                    ? "bg-white text-[#2fa084] shadow-sm"
+                                    : "bg-[#f3f7f5] text-[#899892] group-hover:text-[#2fa084]"
+                                }
+                              `}
+                            >
+                              <Icon size={15} />
+                            </span>
+
+                            <div className="min-w-0">
+                              <p
+                                className={`text-xs font-bold ${
+                                  active
+                                    ? "text-[#1f6f5f]"
+                                    : "text-[#52625c]"
+                                }`}
+                              >
+                                {option.label}
+                              </p>
+
+                              <p className="mt-0.5 truncate text-[9px] font-medium text-[#96a19d]">
+                                {option.description}
+                              </p>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    }
+                  )}
+                </div>
+              </div>
             </div>
 
-            {/* Difficulty */}
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-gray-700">
-                Difficulty
-              </label>
+            <div className="mt-6 flex flex-col gap-3 border-t border-[#edf2ef] pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2 text-[11px] font-medium text-[#89958f]">
+                <CheckCircle2
+                  size={14}
+                  className="text-[#2fa084]"
+                />
+                Generated from your selected material
+              </div>
 
-              <select
-                value={difficulty}
-                onChange={(event) =>
-                  setDifficulty(event.target.value)
-                }
-                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none transition focus:border-[#2FA084] focus:ring-2 focus:ring-[#6FCF97]/30"
-              >
-                <option value="easy">Easy</option>
-                <option value="medium">Medium</option>
-                <option value="hard">Hard</option>
-              </select>
-            </div>
-
-            {/* Generate */}
-            <div className="flex items-end">
               <button
                 onClick={handleGenerateFlashcards}
                 disabled={
                   generationLoading ||
                   !selectedMaterialId
                 }
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#2FA084] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-60"
+                className="group inline-flex items-center justify-center gap-2 rounded-xl bg-[#2fa084] px-5 py-3 text-sm font-bold text-white shadow-[0_8px_20px_rgba(47,160,132,0.18)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f6f5f] hover:shadow-[0_10px_24px_rgba(31,111,95,0.22)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
               >
                 {generationLoading ? (
                   <>
                     <Loader2
-                      size={18}
+                      size={17}
                       className="animate-spin"
                     />
-                    Generating...
+                    Generating cards...
                   </>
                 ) : (
                   <>
-                    <Sparkles size={18} />
+                    <Sparkles size={17} />
                     Generate Flashcards
+                    <ArrowRight
+                      size={16}
+                      className="transition-transform duration-200 group-hover:translate-x-0.5"
+                    />
                   </>
                 )}
               </button>
             </div>
+
+            {generationError && (
+              <motion.div
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-5 flex items-start gap-3 rounded-xl border border-[#f0d8d8] bg-[#fff7f7] p-4"
+              >
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#fde8e8] text-[#c96363]">
+                  <AlertCircle size={16} />
+                </div>
+
+                <div>
+                  <p className="text-xs font-bold text-[#9a5555]">
+                    Flashcard generation failed
+                  </p>
+
+                  <p className="mt-1 text-xs font-medium leading-5 text-[#a86868]">
+                    {generationError}
+                  </p>
+                </div>
+              </motion.div>
+            )}
           </div>
+        </motion.section>
 
-          {generationError && (
-            <div className="mt-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4">
-              <AlertCircle
-                size={19}
-                className="mt-0.5 shrink-0 text-red-500"
-              />
-
-              <div>
-                <p className="text-sm font-semibold text-red-700">
-                  Flashcard generation failed
-                </p>
-
-                <p className="mt-1 text-sm text-red-600">
-                  {generationError}
-                </p>
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* Empty state */}
         {!currentFlashcard &&
           !generationLoading && (
-            <section className="mt-6 rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-16 text-center">
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#6FCF97]/20 text-[#1F6F5F]">
-                <Layers3 size={30} />
+            <motion.section
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.12 }}
+              className="relative mt-6 overflow-hidden rounded-[28px] border border-dashed border-[#ccdcd5] bg-white px-6 py-16 text-center shadow-[0_6px_24px_rgba(23,33,30,0.025)] sm:py-20"
+            >
+              <div className="pointer-events-none absolute left-1/2 top-0 h-48 w-48 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#6fcf97]/10 blur-3xl" />
+
+              <div className="relative">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#e8f6f0] text-[#1f6f5f]">
+                  <Layers3 size={29} />
+                </div>
+
+                <p className="mt-6 text-[10px] font-bold uppercase tracking-[0.16em] text-[#94a39d]">
+                  Your next revision session
+                </p>
+
+                <h2 className="mt-2 text-xl font-bold tracking-tight text-[#30443e] sm:text-2xl">
+                  Ready to test your memory?
+                </h2>
+
+                <p className="mx-auto mt-2 max-w-lg text-sm font-medium leading-6 text-[#89958f]">
+                  Generate a set above and use active
+                  recall to turn your notes into knowledge.
+                </p>
               </div>
-
-              <h2 className="mt-5 text-xl font-semibold text-gray-800">
-                Ready to revise?
-              </h2>
-
-              <p className="mx-auto mt-2 max-w-xl text-sm text-gray-500">
-                Select your material above and generate a new
-                set of flashcards to start studying.
-              </p>
-            </section>
+            </motion.section>
           )}
 
-        {/* Loading state */}
         {generationLoading && (
-          <section className="mt-6 rounded-2xl border border-gray-200 bg-white px-6 py-16 text-center shadow-sm">
-            <Loader2
-              size={34}
-              className="mx-auto animate-spin text-[#2FA084]"
-            />
+          <motion.section
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative mt-6 overflow-hidden rounded-[28px] border border-[#dfeae5] bg-white px-6 py-16 text-center shadow-[0_8px_32px_rgba(23,33,30,0.045)] sm:py-20"
+          >
+            <div className="pointer-events-none absolute left-1/2 top-0 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#6fcf97]/10 blur-3xl" />
 
-            <h2 className="mt-5 text-lg font-semibold text-gray-800">
-              EduMind is creating your flashcards
-            </h2>
+            <div className="relative">
+              <motion.div
+                animate={{
+                  scale: [1, 1.04, 1],
+                  rotate: [0, 3, -3, 0],
+                }}
+                transition={{
+                  duration: 2,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }}
+                className="mx-auto flex h-18 w-18 items-center justify-center rounded-[22px] border border-[#cdeee1] bg-[#e8f6f0] text-[#2fa084]"
+              >
+                <Sparkles size={30} />
+              </motion.div>
 
-            <p className="mt-2 text-sm text-gray-500">
-              This can take a little while because each card
-              is generated from your study material.
-            </p>
-          </section>
+              <h2 className="mt-6 text-xl font-bold text-[#30443e]">
+                EduMind is creating your flashcards
+              </h2>
+
+              <p className="mx-auto mt-2 max-w-md text-sm font-medium leading-6 text-[#89958f]">
+                Your material is being transformed into
+                focused revision cards.
+              </p>
+
+              <div className="mx-auto mt-6 h-1.5 max-w-xs overflow-hidden rounded-full bg-[#edf3f0]">
+                <motion.div
+                  animate={{ x: ["-100%", "100%"] }}
+                  transition={{
+                    duration: 1.4,
+                    repeat: Infinity,
+                    ease: "easeInOut",
+                  }}
+                  className="h-full w-1/2 rounded-full bg-[#2fa084]"
+                />
+              </div>
+            </div>
+          </motion.section>
         )}
 
-        {/* Study area */}
         {currentFlashcard &&
           !generationLoading && (
-            <section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-              {/* Study header */}
-              <div className="border-b border-gray-100 px-5 py-5 sm:px-8">
+            <motion.section
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-6 overflow-hidden rounded-[28px] border border-[#dfeae5] bg-white shadow-[0_8px_32px_rgba(23,33,30,0.045)]"
+            >
+              <div className="border-b border-[#edf2ef] px-5 py-5 sm:px-7">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#6FCF97]/20 text-[#1F6F5F]">
-                      <Layers3 size={22} />
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#e8f6f0] text-[#2fa084]">
+                      <Layers3 size={21} />
                     </div>
 
                     <div className="min-w-0">
-                      <h2 className="truncate text-lg font-semibold text-[#1F6F5F]">
-                        EduMind Flashcards
-                      </h2>
+                      <div className="flex items-center gap-2">
+                        <h2 className="truncate text-sm font-bold text-[#30443e]">
+                          Flashcard Session
+                        </h2>
 
-                      <p className="truncate text-sm text-gray-400">
+                        <span className="hidden rounded-full bg-[#e8f6f0] px-2 py-0.5 text-[9px] font-bold text-[#2fa084] sm:inline-flex">
+                          ACTIVE RECALL
+                        </span>
+                      </div>
+
+                      <p className="mt-0.5 truncate text-xs font-medium text-[#98a39f]">
                         {selectedMaterial?.title ||
                           "Study Material"}
                       </p>
@@ -659,124 +935,271 @@ export default function Flashcards() {
 
                   <button
                     onClick={handleNewSet}
-                    className="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-600 transition hover:border-[#6FCF97] hover:text-[#1F6F5F] sm:self-auto"
+                    className="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-[#dfe8e4] bg-white px-4 py-2.5 text-xs font-bold text-[#65756e] transition-all duration-200 hover:border-[#bcd8cd] hover:bg-[#f8fbfa] hover:text-[#1f6f5f] sm:self-auto"
                   >
-                    <RotateCcw size={16} />
+                    <RotateCcw size={15} />
                     New Set
                   </button>
                 </div>
               </div>
 
-              {/* Progress */}
-              <div className="px-5 pt-7 sm:px-8">
+              <div className="px-5 pt-6 sm:px-8 sm:pt-7">
                 <div className="flex items-center justify-between gap-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    Card {currentIndex + 1} of{" "}
-                    {flashcards.length}
-                  </p>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#8c9994]">
+                      Progress
+                    </p>
 
-                  <span className="rounded-full bg-[#6FCF97]/20 px-3 py-1 text-xs font-semibold text-[#1F6F5F]">
-                    {Math.round(progress)}%
-                  </span>
+                    <p className="mt-1 text-sm font-bold text-[#52635c]">
+                      Card {currentIndex + 1}
+                      <span className="px-1 font-medium text-[#a1aca8]">
+                        /
+                      </span>
+                      {flashcards.length}
+                    </p>
+                  </div>
+
+                  <div className="text-right">
+                    <p className="text-lg font-bold tracking-tight text-[#1f6f5f]">
+                      {Math.round(progress)}%
+                    </p>
+
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#a0aba6]">
+                      Complete
+                    </p>
+                  </div>
                 </div>
 
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100">
-                  <div
-                    className="h-full rounded-full bg-[#2FA084] transition-all duration-300"
-                    style={{
-                      width: `${progress}%`,
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#edf3f0]">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${progress}%` }}
+                    transition={{
+                      duration: 0.45,
+                      ease: "easeOut",
                     }}
+                    className="h-full rounded-full bg-gradient-to-r from-[#2fa084] to-[#6fcf97]"
                   />
                 </div>
               </div>
 
-              {/* Card */}
-              <div className="px-5 py-7 sm:px-8 sm:py-8">
-                <div className="mx-auto max-w-4xl rounded-3xl border border-gray-200 bg-white px-6 py-12 shadow-sm sm:px-12 sm:py-16">
-                  <div className="flex min-h-[280px] flex-col items-center justify-center text-center">
-                    <span className="rounded-full bg-[#6FCF97]/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#1F6F5F]">
+              <div className="px-5 py-7 sm:px-8 sm:py-9">
+                <div className="mx-auto max-w-4xl">
+                  <div className="mb-4 flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-[#dceee6] bg-[#f4faf7] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-[#2fa084]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#2fa084]" />
                       {revealed
                         ? "Answer"
                         : "Question"}
                     </span>
 
-                    <div className="mt-7 max-w-3xl">
-                      <p
-                        className={`text-xl font-semibold leading-relaxed sm:text-3xl ${
-                          revealed
-                            ? "text-[#1F6F5F]"
-                            : "text-gray-800"
-                        }`}
-                      >
-                        {revealed
-                          ? currentFlashcard.back
-                          : currentFlashcard.front}
-                      </p>
+                    <span className="text-[10px] font-semibold text-[#a0aba6]">
+                      Space / Enter to reveal
+                    </span>
+                  </div>
+
+                  <div className="relative">
+                    <div className="absolute inset-x-6 bottom-[-10px] top-4 rounded-[28px] border border-[#e8efec] bg-[#f7faf9]" />
+
+                    <div className="relative min-h-[350px] overflow-hidden rounded-[28px] border border-[#dfe9e4] bg-gradient-to-br from-white via-white to-[#f5faf8] p-7 shadow-[0_18px_45px_rgba(23,33,30,0.08)] sm:min-h-[390px] sm:p-12">
+                      <div className="pointer-events-none absolute -right-20 -top-20 h-48 w-48 rounded-full bg-[#6fcf97]/10 blur-3xl" />
+
+                      <div className="pointer-events-none absolute -bottom-24 -left-20 h-48 w-48 rounded-full bg-[#cdeee1]/20 blur-3xl" />
+
+                      <div className="relative flex min-h-[290px] flex-col items-center justify-center text-center sm:min-h-[320px]">
+                        <div className="mb-7 flex h-11 w-11 items-center justify-center rounded-xl border border-[#dceee6] bg-[#f3faf7] text-[#2fa084]">
+                          {revealed ? (
+                            <CheckCircle2 size={20} />
+                          ) : (
+                            <Brain size={20} />
+                          )}
+                        </div>
+
+                        <AnimatePresence mode="wait">
+                          <motion.div
+                            key={`${currentIndex}-${revealed}`}
+                            initial={{
+                              opacity: 0,
+                              y: 10,
+                              scale: 0.985,
+                            }}
+                            animate={{
+                              opacity: 1,
+                              y: 0,
+                              scale: 1,
+                            }}
+                            exit={{
+                              opacity: 0,
+                              y: -8,
+                              scale: 0.985,
+                            }}
+                            transition={{
+                              duration: 0.22,
+                            }}
+                            className="max-w-3xl"
+                          >
+                            <p
+                              className={`text-lg font-semibold leading-relaxed sm:text-[28px] ${
+                                revealed
+                                  ? "text-[#1f6f5f]"
+                                  : "text-[#30443e]"
+                              }`}
+                            >
+                              {revealed
+                                ? currentFlashcard.back
+                                : currentFlashcard.front}
+                            </p>
+                          </motion.div>
+                        </AnimatePresence>
+
+                        {!revealed && (
+                          <motion.button
+                            initial={{
+                              opacity: 0,
+                              y: 8,
+                            }}
+                            animate={{
+                              opacity: 1,
+                              y: 0,
+                            }}
+                            transition={{
+                              delay: 0.1,
+                            }}
+                            onClick={handleReveal}
+                            className="mt-10 inline-flex items-center gap-2 rounded-xl bg-[#2fa084] px-5 py-3 text-sm font-bold text-white shadow-[0_8px_20px_rgba(47,160,132,0.18)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f6f5f] hover:shadow-[0_10px_24px_rgba(31,111,95,0.22)]"
+                          >
+                            <Eye size={17} />
+                            Reveal Answer
+                          </motion.button>
+                        )}
+
+                        {revealed && (
+                          <motion.div
+                            initial={{
+                              opacity: 0,
+                              y: 8,
+                            }}
+                            animate={{
+                              opacity: 1,
+                              y: 0,
+                            }}
+                            className="mt-8 inline-flex items-center gap-2 rounded-xl border border-[#dceee6] bg-[#f3faf7] px-4 py-2.5 text-[11px] font-bold text-[#2fa084]"
+                          >
+                            <CheckCircle2 size={14} />
+                            Answer revealed
+                          </motion.div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex items-center justify-between gap-3">
+                    <button
+                      onClick={handlePrevious}
+                      disabled={currentIndex === 0}
+                      className="inline-flex items-center gap-2 rounded-xl border border-[#dfe8e4] bg-white px-4 py-3 text-xs font-bold text-[#66766f] shadow-sm transition-all duration-200 hover:border-[#bfd9cf] hover:bg-[#f8fbfa] hover:text-[#1f6f5f] disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                      <ChevronLeft size={17} />
+                      <span className="hidden sm:inline">
+                        Previous
+                      </span>
+                    </button>
+
+                    <div className="flex items-center gap-1.5">
+                      {flashcards
+                        .slice(0, 10)
+                        .map((_, index) => (
+                          <span
+                            key={index}
+                            className={`h-1.5 rounded-full transition-all duration-300 ${
+                              index === currentIndex
+                                ? "w-5 bg-[#2fa084]"
+                                : index <
+                                  currentIndex
+                                ? "w-1.5 bg-[#9bd9c2]"
+                                : "w-1.5 bg-[#dfe8e4]"
+                            }`}
+                          />
+                        ))}
+
+                      {flashcards.length > 10 && (
+                        <span className="ml-1 text-[9px] font-bold text-[#a0aba6]">
+                          +{flashcards.length - 10}
+                        </span>
+                      )}
                     </div>
 
-                    {!revealed && (
-                      <button
-                        onClick={handleReveal}
-                        className="mt-10 inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-600 shadow-sm transition hover:border-[#6FCF97] hover:text-[#1F6F5F]"
-                      >
-                        <Eye size={17} />
-                        Reveal Answer
-                      </button>
-                    )}
-
-                    {revealed && (
-                      <div className="mt-8 inline-flex items-center gap-2 rounded-xl bg-[#6FCF97]/15 px-4 py-2 text-xs font-medium text-[#1F6F5F]">
-                        <Eye size={15} />
-                        Answer revealed
-                      </div>
-                    )}
+                    <button
+                      onClick={
+                        revealed
+                          ? handleNext
+                          : handleReveal
+                      }
+                      disabled={
+                        revealed && isLastCard
+                      }
+                      className="inline-flex items-center gap-2 rounded-xl bg-[#2fa084] px-5 py-3 text-xs font-bold text-white shadow-[0_8px_20px_rgba(47,160,132,0.18)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f6f5f] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:translate-y-0"
+                    >
+                      {revealed ? (
+                        <>
+                          <span className="hidden sm:inline">
+                            Next Card
+                          </span>
+                          <span className="sm:hidden">
+                            Next
+                          </span>
+                          <ChevronRight size={17} />
+                        </>
+                      ) : (
+                        <>
+                          <Eye size={16} />
+                          Reveal
+                        </>
+                      )}
+                    </button>
                   </div>
-                </div>
 
-                {/* Navigation */}
-                <div className="mx-auto mt-6 flex max-w-4xl items-center justify-between gap-3">
-                  <button
-                    onClick={handlePrevious}
-                    disabled={currentIndex === 0}
-                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-600 transition hover:border-[#6FCF97] hover:text-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <ChevronLeft size={18} />
-                    Previous
-                  </button>
+                  <div className="mt-5 flex items-center justify-center gap-2 text-[10px] font-medium text-[#9aa6a1]">
+                    <span className="hidden sm:inline">
+                      ← Previous
+                    </span>
 
-                  <button
-                    onClick={
-                      revealed
-                        ? handleNext
-                        : handleReveal
-                    }
-                    disabled={
-                      revealed &&
-                      currentIndex >=
-                        flashcards.length - 1
-                    }
-                    className="inline-flex items-center gap-2 rounded-xl bg-[#2FA084] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {revealed ? (
-                      <>
-                        Next
-                        <ChevronRight size={18} />
-                      </>
-                    ) : (
-                      <>
-                        <Eye size={17} />
-                        Reveal Answer
-                      </>
-                    )}
-                  </button>
-                </div>
+                    <span className="hidden h-1 w-1 rounded-full bg-[#c7d5cf] sm:block" />
 
-                {revealed &&
-                  currentIndex ===
-                    flashcards.length - 1 && (
-                    <div className="mt-6 text-center">
-                      <p className="text-sm font-medium text-[#1F6F5F]">
-                        You reached the end of this set.
+                    <span>
+                      Use your keyboard to navigate
+                    </span>
+
+                    <span className="hidden h-1 w-1 rounded-full bg-[#c7d5cf] sm:block" />
+
+                    <span className="hidden sm:inline">
+                      Next →
+                    </span>
+                  </div>
+
+                  {revealed && isLastCard && (
+                    <motion.div
+                      initial={{
+                        opacity: 0,
+                        y: 10,
+                      }}
+                      animate={{
+                        opacity: 1,
+                        y: 0,
+                      }}
+                      className="mt-7 rounded-2xl border border-[#cdeee1] bg-gradient-to-r from-[#f3faf7] to-[#edf8f3] p-5 text-center"
+                    >
+                      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-white text-[#2fa084] shadow-sm">
+                        <CheckCircle2 size={19} />
+                      </div>
+
+                      <p className="mt-3 text-sm font-bold text-[#1f6f5f]">
+                        You completed this set
+                      </p>
+
+                      <p className="mt-1 text-xs font-medium text-[#769088]">
+                        Nice work. Keep the momentum going
+                        with another focused revision set.
                       </p>
 
                       <button
@@ -784,16 +1207,22 @@ export default function Flashcards() {
                           handleGenerateFlashcards
                         }
                         disabled={generationLoading}
-                        className="mt-3 inline-flex items-center gap-2 rounded-xl border border-[#6FCF97] bg-[#6FCF97]/10 px-4 py-2.5 text-sm font-semibold text-[#1F6F5F] transition hover:bg-[#6FCF97]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="mt-4 inline-flex items-center gap-2 rounded-xl border border-[#9bd9c2] bg-white px-4 py-2.5 text-xs font-bold text-[#1f6f5f] shadow-sm transition-all duration-200 hover:bg-[#e8f6f0] disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        <RotateCcw size={16} />
+                        <RotateCcw size={15} />
                         Generate Another Set
                       </button>
-                    </div>
+                    </motion.div>
                   )}
+                </div>
               </div>
-            </section>
+            </motion.section>
           )}
+
+        <div className="mt-5 flex items-center justify-center gap-2 text-[10px] font-medium text-[#9aa6a1]">
+          <BookOpen size={12} />
+          EduMind • Learn from your own materials
+        </div>
       </div>
     </div>
   );

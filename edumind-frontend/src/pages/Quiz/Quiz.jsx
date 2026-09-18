@@ -1,16 +1,25 @@
 import { useEffect, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../../context/AuthContext";
 
 import {
   AlertCircle,
+  ArrowLeft,
   ArrowRight,
+  BookOpen,
+  Check,
   CheckCircle2,
+  ChevronDown,
   ClipboardCheck,
   FileText,
+  Flame,
   Loader2,
   RotateCcw,
   Sparkles,
+  Target,
+  Trophy,
   XCircle,
+  Zap,
 } from "lucide-react";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
@@ -22,18 +31,48 @@ const DIFFICULTIES = [
     value: "easy",
     label: "Easy",
     description: "Definitions and direct understanding",
+    icon: BookOpen,
+    accent: "bg-[#eef9f4] text-[#2fa084]",
   },
   {
     value: "medium",
     label: "Medium",
     description: "Concepts and moderate reasoning",
+    icon: Target,
+    accent: "bg-[#eef9f4] text-[#278c73]",
   },
   {
     value: "hard",
     label: "Hard",
     description: "Deeper reasoning and application",
+    icon: Zap,
+    accent: "bg-[#eef9f4] text-[#1f6f5f]",
   },
 ];
+
+const pageVariants = {
+  hidden: { opacity: 0, y: 10 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.4,
+      ease: "easeOut",
+    },
+  },
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 8 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.35,
+      ease: "easeOut",
+    },
+  },
+};
 
 export default function Quiz() {
   const { token } = useAuth();
@@ -64,13 +103,9 @@ export default function Quiz() {
   const [quizError, setQuizError] = useState("");
 
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-
   const [selectedAnswer, setSelectedAnswer] = useState("");
-
   const [submitted, setSubmitted] = useState(false);
-
   const [score, setScore] = useState(0);
-
   const [completed, setCompleted] = useState(false);
 
   // --------------------------------------------------
@@ -80,9 +115,7 @@ export default function Quiz() {
   const quizScoreRef = useRef(0);
   const quizAnalyticsRecordedRef = useRef(false);
 
-  const [quizAnalyticsLoading, setQuizAnalyticsLoading] =
-    useState(false);
-
+  const [quizAnalyticsLoading, setQuizAnalyticsLoading] = useState(false);
   const [quizAnalyticsError, setQuizAnalyticsError] = useState("");
 
   // --------------------------------------------------
@@ -99,14 +132,11 @@ export default function Quiz() {
       setMaterialsError("");
 
       try {
-        const response = await fetch(
-          `${API_BASE_URL}/api/materials/`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+        const response = await fetch(`${API_BASE_URL}/api/materials/`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
 
         if (!response.ok) {
           let errorMessage = "Failed to load study materials.";
@@ -139,10 +169,7 @@ export default function Quiz() {
           setSelectedMaterialId(String(pdfMaterials[0].id));
         }
       } catch (error) {
-        console.error(
-          "Error loading quiz materials:",
-          error
-        );
+        console.error("Error loading quiz materials:", error);
 
         setMaterialsError(
           error.message ||
@@ -237,8 +264,7 @@ export default function Quiz() {
       );
 
       if (!response.ok) {
-        let errorMessage =
-          "Failed to record quiz analytics.";
+        let errorMessage = "Failed to record quiz analytics.";
 
         try {
           const errorData = await response.json();
@@ -255,19 +281,13 @@ export default function Quiz() {
 
       const data = await response.json();
 
-      console.log(
-        "Quiz analytics recorded successfully:",
-        data
-      );
+      console.log("Quiz analytics recorded successfully:", data);
 
       quizAnalyticsRecordedRef.current = true;
 
       return true;
     } catch (error) {
-      console.error(
-        "Error recording quiz analytics:",
-        error
-      );
+      console.error("Error recording quiz analytics:", error);
 
       setQuizAnalyticsError(
         error.message ||
@@ -342,17 +362,12 @@ export default function Quiz() {
         !Array.isArray(data.questions) ||
         data.questions.length === 0
       ) {
-        throw new Error(
-          "The server returned an empty quiz."
-        );
+        throw new Error("The server returned an empty quiz.");
       }
 
       setQuiz(data);
     } catch (error) {
-      console.error(
-        "Error generating quiz:",
-        error
-      );
+      console.error("Error generating quiz:", error);
 
       setQuizError(
         error.message ||
@@ -392,8 +407,7 @@ export default function Quiz() {
       selectedAnswer === currentQuestion.correct_answer;
 
     if (isCorrect) {
-      const nextScore =
-        quizScoreRef.current + 1;
+      const nextScore = quizScoreRef.current + 1;
 
       quizScoreRef.current = nextScore;
       setScore(nextScore);
@@ -415,8 +429,7 @@ export default function Quiz() {
     }
 
     const isLastQuestion =
-      currentQuestionIndex >=
-      quiz.questions.length - 1;
+      currentQuestionIndex >= quiz.questions.length - 1;
 
     if (isLastQuestion) {
       const analyticsSaved =
@@ -471,17 +484,38 @@ export default function Quiz() {
 
   if (materialsLoading) {
     return (
-      <div className="min-h-full bg-[#EEEEEE] px-4 py-6 sm:px-6 lg:px-8">
+      <div className="min-h-full bg-[#f4f7f6] px-4 py-6 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-6xl">
-          <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
-            <div className="flex items-center gap-3 text-sm text-gray-500">
-              <Loader2
-                size={18}
-                className="animate-spin text-[#2FA084]"
-              />
-              Loading your study materials...
+          <motion.div
+            initial="hidden"
+            animate="visible"
+            variants={pageVariants}
+            className="overflow-hidden rounded-[24px] border border-[#dfeae5] bg-white shadow-[0_8px_30px_rgba(23,33,30,0.05)]"
+          >
+            <div className="relative overflow-hidden px-6 py-16 text-center sm:px-10">
+              <div className="pointer-events-none absolute left-1/2 top-0 h-40 w-40 -translate-x-1/2 rounded-full bg-[#6fcf97]/10 blur-3xl" />
+
+              <div className="relative mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-[#cdeee1] bg-[#e8f6f0] text-[#2fa084] shadow-sm">
+                <Loader2
+                  size={28}
+                  className="animate-spin"
+                />
+              </div>
+
+              <h2 className="mt-6 text-lg font-bold tracking-tight text-[#263b34]">
+                Loading your learning space
+              </h2>
+
+              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#84928c]">
+                Fetching your study materials so EduMind can prepare
+                your quiz workspace.
+              </p>
+
+              <div className="mx-auto mt-7 h-1.5 max-w-xs overflow-hidden rounded-full bg-[#edf3f0]">
+                <div className="h-full w-1/2 animate-pulse rounded-full bg-[#2fa084]" />
+              </div>
             </div>
-          </div>
+          </motion.div>
         </div>
       </div>
     );
@@ -493,26 +527,28 @@ export default function Quiz() {
 
   if (materialsError) {
     return (
-      <div className="min-h-full bg-[#EEEEEE] px-4 py-6 sm:px-6 lg:px-8">
+      <div className="min-h-full bg-[#f4f7f6] px-4 py-6 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-6xl">
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-6 shadow-sm">
-            <div className="flex items-start gap-3 text-red-600">
-              <AlertCircle
-                size={19}
-                className="mt-0.5 shrink-0"
-              />
-
-              <div>
-                <p className="text-sm font-semibold">
-                  Unable to load study materials
-                </p>
-
-                <p className="mt-1 text-sm">
-                  {materialsError}
-                </p>
+          <motion.div
+            initial="hidden"
+            animate="visible"
+            variants={pageVariants}
+            className="overflow-hidden rounded-[24px] border border-[#f0d8d8] bg-white shadow-[0_8px_30px_rgba(23,33,30,0.05)]"
+          >
+            <div className="px-6 py-12 text-center sm:px-10">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#fff0f0] text-[#c96363]">
+                <AlertCircle size={27} />
               </div>
+
+              <h2 className="mt-5 text-lg font-bold text-[#3c4541]">
+                Unable to load study materials
+              </h2>
+
+              <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-[#89938f]">
+                {materialsError}
+              </p>
             </div>
-          </div>
+          </motion.div>
         </div>
       </div>
     );
@@ -524,22 +560,37 @@ export default function Quiz() {
 
   if (materials.length === 0) {
     return (
-      <div className="min-h-full bg-[#EEEEEE] px-4 py-6 sm:px-6 lg:px-8">
+      <div className="min-h-full bg-[#f4f7f6] px-4 py-6 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-6xl">
-          <div className="rounded-2xl border border-gray-200 bg-white p-10 text-center shadow-sm">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#6FCF97]/20 text-[#1F6F5F]">
-              <FileText size={28} />
+          <motion.div
+            initial="hidden"
+            animate="visible"
+            variants={pageVariants}
+            className="relative overflow-hidden rounded-[28px] border border-[#dfeae5] bg-white shadow-[0_10px_35px_rgba(23,33,30,0.05)]"
+          >
+            <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-[#6fcf97]/10 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-24 left-1/4 h-48 w-48 rounded-full bg-[#cdeee1]/20 blur-3xl" />
+
+            <div className="relative px-6 py-14 text-center sm:px-10 sm:py-16">
+              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[24px] border border-[#cdeee1] bg-[#e8f6f0] text-[#1f6f5f] shadow-sm">
+                <FileText size={34} strokeWidth={1.8} />
+              </div>
+
+              <div className="mx-auto mt-6 inline-flex items-center gap-2 rounded-full border border-[#dceee6] bg-[#f5faf7] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[#5f7d72]">
+                <Sparkles size={12} className="text-[#2fa084]" />
+                Quiz workspace
+              </div>
+
+              <h1 className="mt-4 text-2xl font-bold tracking-[-0.03em] text-[#263b34] sm:text-3xl">
+                Your quiz library is waiting
+              </h1>
+
+              <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-[#84918c]">
+                Upload a PDF to your Learning Library and EduMind
+                will turn it into an interactive quiz.
+              </p>
             </div>
-
-            <h1 className="mt-5 text-xl font-semibold text-gray-700">
-              No PDF materials available
-            </h1>
-
-            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-gray-500">
-              Upload a PDF in your Learning Library before
-              generating a quiz.
-            </p>
-          </div>
+          </motion.div>
         </div>
       </div>
     );
@@ -550,130 +601,226 @@ export default function Quiz() {
   // --------------------------------------------------
 
   if (completed && quiz) {
-    const totalQuestions =
-      quiz.questions.length;
+    const totalQuestions = quiz.questions.length;
 
     const percentage = Math.round(
       (score / totalQuestions) * 100
     );
 
+    const resultMessage =
+      percentage >= 90
+        ? "Excellent work. You have a strong grasp of this material."
+        : percentage >= 70
+        ? "Great progress. A little more practice can make this even stronger."
+        : percentage >= 50
+        ? "You’re building understanding. Review the missed concepts and try again."
+        : "This is a good starting point. Review the material and give it another attempt.";
+
     return (
-      <div className="min-h-full bg-[#EEEEEE] px-4 py-5 sm:px-6 lg:px-8">
+      <div className="min-h-full bg-[#f4f7f6] px-4 py-5 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-5xl">
-
-          {/* Header */}
-          <div className="mb-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#6FCF97]/20 text-[#1F6F5F]">
-                <ClipboardCheck size={23} />
-              </div>
-
+          <motion.div
+            initial="hidden"
+            animate="visible"
+            variants={pageVariants}
+          >
+            <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <h1 className="text-2xl font-bold text-[#1F6F5F]">
+                <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#dceee6] bg-white px-3 py-1.5 shadow-sm">
+                  <CheckCircle2
+                    size={13}
+                    className="text-[#2fa084]"
+                  />
+                  <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#628078]">
+                    Assessment complete
+                  </span>
+                </div>
+
+                <h1 className="text-2xl font-bold tracking-[-0.03em] text-[#263b34] sm:text-3xl">
                   Quiz Complete
                 </h1>
 
-                <p className="mt-1 text-sm text-gray-500">
+                <p className="mt-1.5 max-w-xl truncate text-sm font-medium text-[#84918c]">
                   {selectedMaterial?.title}
                 </p>
               </div>
-            </div>
-          </div>
 
-          {/* Result */}
-          <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
-            <div className="text-center">
-
-              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-[#6FCF97]/20 text-[#1F6F5F]">
-                <CheckCircle2 size={40} />
-              </div>
-
-              <p className="mt-6 text-sm font-semibold uppercase tracking-wide text-gray-400">
-                Your Score
-              </p>
-
-              <div className="mt-2 text-5xl font-bold text-[#1F6F5F]">
-                {score}
-                <span className="text-2xl text-gray-400">
-                  {" "}
-                  / {totalQuestions}
+              <div className="inline-flex w-fit items-center gap-2 rounded-xl border border-[#dfeae5] bg-white px-3.5 py-2.5 shadow-sm">
+                <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#9aa6a1]">
+                  Difficulty
+                </span>
+                <span className="rounded-lg bg-[#e8f6f0] px-2 py-1 text-xs font-bold capitalize text-[#1f6f5f]">
+                  {difficulty}
                 </span>
               </div>
+            </div>
 
-              <p className="mt-3 text-lg font-semibold text-gray-700">
-                {percentage}%
-              </p>
+            <div className="relative overflow-hidden rounded-[28px] border border-[#dfeae5] bg-white shadow-[0_12px_40px_rgba(23,33,30,0.06)]">
+              <div className="pointer-events-none absolute -right-24 -top-28 h-72 w-72 rounded-full bg-[#6fcf97]/12 blur-3xl" />
+              <div className="pointer-events-none absolute -left-24 bottom-0 h-56 w-56 rounded-full bg-[#cdeee1]/20 blur-3xl" />
 
-              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-gray-500">
-                You answered {score} out of{" "}
-                {totalQuestions} questions correctly.
-              </p>
+              <div className="relative px-6 py-10 sm:px-10 sm:py-12">
+                <div className="mx-auto max-w-xl text-center">
+                  <div className="relative mx-auto flex h-24 w-24 items-center justify-center rounded-full border-8 border-[#edf8f3] bg-[#e8f6f0] text-[#1f6f5f]">
+                    {percentage >= 70 ? (
+                      <Trophy size={40} strokeWidth={1.8} />
+                    ) : (
+                      <CheckCircle2 size={40} strokeWidth={1.8} />
+                    )}
 
-              {/* Progress */}
-              <div className="mx-auto mt-7 max-w-md">
-                <div className="h-3 overflow-hidden rounded-full bg-gray-100">
-                  <div
-                    className="h-full rounded-full bg-[#2FA084] transition-all"
-                    style={{
-                      width: `${percentage}%`,
-                    }}
-                  />
-                </div>
-              </div>
+                    <div className="absolute -right-1 -top-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-[#2fa084] text-white shadow-sm">
+                      <Sparkles size={13} />
+                    </div>
+                  </div>
 
-              {/* Actions */}
-              <div className="mt-8 flex flex-wrap justify-center gap-3">
-                <button
-                  onClick={handleRetryQuiz}
-                  disabled={
-                    quizLoading ||
-                    quizAnalyticsLoading
-                  }
-                  className="flex items-center gap-2 rounded-xl bg-[#2FA084] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {quizLoading ? (
-                    <Loader2
-                      size={17}
-                      className="animate-spin"
-                    />
-                  ) : (
-                    <RotateCcw size={17} />
+                  <p className="mt-7 text-[10px] font-bold uppercase tracking-[0.16em] text-[#9aa7a2]">
+                    Your score
+                  </p>
+
+                  <div className="mt-2 flex items-baseline justify-center gap-2">
+                    <span className="text-6xl font-bold tracking-[-0.06em] text-[#176b5b]">
+                      {score}
+                    </span>
+
+                    <span className="text-2xl font-semibold text-[#a2ada8]">
+                      / {totalQuestions}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-[#f3faf7] px-3.5 py-1.5">
+                    <span className="h-2 w-2 rounded-full bg-[#2fa084]" />
+                    <span className="text-sm font-bold text-[#2f7665]">
+                      {percentage}%
+                    </span>
+                  </div>
+
+                  <p className="mx-auto mt-4 max-w-md text-sm leading-6 text-[#7d8b85]">
+                    {resultMessage}
+                  </p>
+
+                  <div className="mx-auto mt-8 max-w-md">
+                    <div className="mb-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.08em]">
+                      <span className="text-[#a0aba6]">
+                        Performance
+                      </span>
+
+                      <span className="text-[#2fa084]">
+                        {score} correct
+                      </span>
+                    </div>
+
+                    <div className="h-2.5 overflow-hidden rounded-full bg-[#edf2ef]">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{
+                          width: `${percentage}%`,
+                        }}
+                        transition={{
+                          duration: 0.8,
+                          ease: "easeOut",
+                        }}
+                        className="h-full rounded-full bg-[#2fa084]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-8 grid grid-cols-2 gap-3">
+                    <div className="rounded-2xl border border-[#e5ece9] bg-[#fafcfb] px-4 py-4">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#a0aba6]">
+                        Correct
+                      </p>
+
+                      <p className="mt-1 text-xl font-bold text-[#2fa084]">
+                        {score}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-[#e5ece9] bg-[#fafcfb] px-4 py-4">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#a0aba6]">
+                        Reviewed
+                      </p>
+
+                      <p className="mt-1 text-xl font-bold text-[#53635d]">
+                        {totalQuestions}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+                    <button
+                      onClick={handleRetryQuiz}
+                      disabled={
+                        quizLoading ||
+                        quizAnalyticsLoading
+                      }
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2fa084] px-5 py-3 text-sm font-semibold text-white shadow-[0_6px_18px_rgba(47,160,132,0.18)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f6f5f] hover:shadow-[0_8px_22px_rgba(47,160,132,0.22)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                    >
+                      {quizLoading ? (
+                        <Loader2
+                          size={17}
+                          className="animate-spin"
+                        />
+                      ) : (
+                        <RotateCcw size={17} />
+                      )}
+
+                      {quizLoading
+                        ? "Generating..."
+                        : "Retry Quiz"}
+                    </button>
+
+                    <button
+                      onClick={handleDone}
+                      disabled={
+                        quizLoading ||
+                        quizAnalyticsLoading
+                      }
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#dfe8e4] bg-white px-5 py-3 text-sm font-semibold text-[#53635d] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#a9dfcc] hover:bg-[#f7fbf9] hover:text-[#1f6f5f] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                    >
+                      <ArrowLeft size={16} />
+                      Back to Quiz Setup
+                    </button>
+                  </div>
+
+                  {quizAnalyticsError && (
+                    <div className="mx-auto mt-6 flex max-w-lg items-start gap-3 rounded-2xl border border-[#f0d8d8] bg-[#fff7f7] px-4 py-3 text-left">
+                      <AlertCircle
+                        size={17}
+                        className="mt-0.5 shrink-0 text-[#c96363]"
+                      />
+
+                      <div>
+                        <p className="text-sm font-semibold text-[#a85b5b]">
+                          Your result could not be saved.
+                        </p>
+
+                        <p className="mt-1 text-xs leading-5 text-[#a86d6d]">
+                          {quizAnalyticsError}
+                        </p>
+
+                        <p className="mt-1 text-[11px] text-[#b57b7b]">
+                          Click the result button again to retry.
+                        </p>
+                      </div>
+                    </div>
                   )}
 
-                  {quizLoading
-                    ? "Generating..."
-                    : "Retry Quiz"}
-                </button>
+                  {quizAnalyticsRecordedRef.current && (
+                    <div className="mt-5 inline-flex items-center gap-2 rounded-full bg-[#f1faf6] px-3 py-1.5">
+                      <CheckCircle2
+                        size={13}
+                        className="text-[#2fa084]"
+                      />
 
-                <button
-                  onClick={handleDone}
-                  disabled={
-                    quizLoading ||
-                    quizAnalyticsLoading
-                  }
-                  className="rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-600 transition hover:border-[#6FCF97] hover:text-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Done
-                </button>
-              </div>
-
-              {quizAnalyticsError && (
-                <div className="mx-auto mt-6 flex max-w-lg items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-left text-sm text-red-600">
-                  <AlertCircle
-                    size={17}
-                    className="mt-0.5 shrink-0"
-                  />
-                  <span>{quizAnalyticsError}</span>
+                      <span className="text-xs font-semibold text-[#4d786b]">
+                        Result saved to Learning Analytics
+                      </span>
+                    </div>
+                  )}
                 </div>
-              )}
-
-              {quizAnalyticsRecordedRef.current && (
-                <p className="mt-4 text-xs font-medium text-[#2FA084]">
-                  Quiz result saved to Learning Analytics.
-                </p>
-              )}
+              </div>
             </div>
-          </div>
+          </motion.div>
         </div>
       </div>
     );
@@ -684,11 +831,9 @@ export default function Quiz() {
   // --------------------------------------------------
 
   if (quiz && currentQuestion) {
-    const totalQuestions =
-      quiz.questions.length;
+    const totalQuestions = quiz.questions.length;
 
-    const questionNumber =
-      currentQuestionIndex + 1;
+    const questionNumber = currentQuestionIndex + 1;
 
     const progressPercentage = Math.round(
       (questionNumber / totalQuestions) * 100
@@ -699,288 +844,413 @@ export default function Quiz() {
       currentQuestion.correct_answer;
 
     return (
-      <div className="min-h-full bg-[#EEEEEE] px-4 py-5 sm:px-6 lg:px-8">
+      <div className="min-h-full bg-[#f4f7f6] px-4 py-5 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-5xl">
-
-          {/* Quiz Header */}
-          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
-
-            <div className="border-b border-gray-100 px-6 py-5">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-
-                <div>
-                  <div className="flex items-center gap-2">
+          <motion.div
+            initial="hidden"
+            animate="visible"
+            variants={pageVariants}
+          >
+            {/* Quiz top bar */}
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#e8f6f0] text-[#2fa084]">
                     <ClipboardCheck
-                      size={19}
-                      className="text-[#2FA084]"
+                      size={17}
+                      strokeWidth={2.2}
                     />
-
-                    <span className="text-sm font-semibold text-[#1F6F5F]">
-                      EduMind Quiz
-                    </span>
                   </div>
 
-                  <p className="mt-1 text-xs text-gray-400">
-                    {selectedMaterial?.title}
-                  </p>
-                </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-[#1f6f5f]">
+                      EduMind Quiz
+                    </p>
 
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    Question {questionNumber} of{" "}
-                    {totalQuestions}
-                  </span>
-
-                  <span className="rounded-full bg-[#6FCF97]/20 px-3 py-1 text-xs font-semibold text-[#1F6F5F]">
-                    {progressPercentage}%
-                  </span>
+                    <p className="max-w-[250px] truncate text-[10px] font-medium text-[#8a9792] sm:max-w-md">
+                      {selectedMaterial?.title}
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              <div className="mt-5 h-2 overflow-hidden rounded-full bg-gray-100">
-                <div
-                  className="h-full rounded-full bg-[#2FA084] transition-all duration-300"
-                  style={{
+              <div className="shrink-0 rounded-xl border border-[#dfeae5] bg-white px-3 py-2 shadow-sm">
+                <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-[#9ca8a3]">
+                  Progress
+                </p>
+
+                <p className="mt-0.5 text-xs font-bold text-[#53635d]">
+                  {questionNumber}{" "}
+                  <span className="font-medium text-[#a0aba6]">
+                    / {totalQuestions}
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            {/* Progress */}
+            <div className="mb-5">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[10px] font-semibold text-[#89968f]">
+                  Question {questionNumber} of {totalQuestions}
+                </span>
+
+                <span className="text-[10px] font-bold text-[#2fa084]">
+                  {progressPercentage}%
+                </span>
+              </div>
+
+              <div className="h-1.5 overflow-hidden rounded-full bg-[#e6eeea]">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{
                     width: `${progressPercentage}%`,
                   }}
+                  transition={{
+                    duration: 0.4,
+                    ease: "easeOut",
+                  }}
+                  className="h-full rounded-full bg-[#2fa084]"
                 />
               </div>
             </div>
 
-            {/* Question Area */}
-            <div className="px-6 py-7">
+            {/* Main quiz card */}
+            <div className="overflow-hidden rounded-[26px] border border-[#dfeae5] bg-white shadow-[0_10px_35px_rgba(23,33,30,0.055)]">
+              <div className="border-b border-[#edf1ef] px-5 py-5 sm:px-7">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-[#dceee6] bg-[#f5faf7] px-3 py-1.5 text-[10px] font-bold text-[#52766a]">
+                      <Target
+                        size={12}
+                        className="text-[#2fa084]"
+                      />
+                      {difficulty.charAt(0).toUpperCase() +
+                        difficulty.slice(1)}
+                    </span>
 
-              <div className="mb-6 flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-[#F8F9F8] px-3 py-1.5 text-xs font-semibold text-gray-500">
-                  Difficulty:{" "}
-                  <span className="text-[#1F6F5F]">
-                    {difficulty
-                      .charAt(0)
-                      .toUpperCase() +
-                      difficulty.slice(1)}
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e7ece9] bg-[#fafcfb] px-3 py-1.5 text-[10px] font-semibold text-[#89958f]">
+                      <FileText size={12} />
+                      Document grounded
+                    </span>
+                  </div>
+
+                  <span className="hidden text-[10px] font-semibold text-[#a0aba6] sm:block">
+                    Take your time and reason it out.
                   </span>
-                </span>
+                </div>
               </div>
 
-              <div className="rounded-2xl bg-[#F8F9F8] px-6 py-6">
-                <h2 className="text-lg font-semibold leading-8 text-gray-800 sm:text-xl">
-                  {currentQuestion.question}
-                </h2>
-              </div>
+              <div className="px-5 py-6 sm:px-7 sm:py-8">
+                {/* Question */}
+                <div className="relative overflow-hidden rounded-[22px] border border-[#e1ebe6] bg-gradient-to-br from-[#f8fbfa] via-white to-[#f1faf6] px-5 py-6 sm:px-7 sm:py-7">
+                  <div className="pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full bg-[#6fcf97]/10 blur-2xl" />
 
-              {/* Options */}
-              <div className="mt-6 space-y-3">
-                {currentQuestion.options.map(
-                  (option, index) => {
-                    const optionLetter =
-                      String.fromCharCode(
-                        65 + index
-                      );
+                  <div className="relative">
+                    <div className="mb-4 flex items-center gap-2">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#e8f6f0] text-[10px] font-bold text-[#2fa084]">
+                        {questionNumber}
+                      </span>
 
-                    const isSelected =
-                      selectedAnswer === option;
+                      <span className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#8b9a93]">
+                        Question
+                      </span>
+                    </div>
 
-                    const isCorrectOption =
-                      submitted &&
-                      option ===
-                        currentQuestion.correct_answer;
+                    <h2 className="text-[18px] font-bold leading-8 tracking-[-0.015em] text-[#263b34] sm:text-[21px] sm:leading-9">
+                      {currentQuestion.question}
+                    </h2>
+                  </div>
+                </div>
 
-                    const isWrongSelected =
-                      submitted &&
-                      isSelected &&
-                      !isCorrect;
+                {/* Options */}
+                <div className="mt-6 space-y-3">
+                  <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-[#9aa6a1]">
+                    Choose your answer
+                  </p>
 
-                    let optionClasses =
-                      "border-gray-200 bg-white hover:border-[#6FCF97] hover:bg-[#6FCF97]/5";
+                  {currentQuestion.options.map(
+                    (option, index) => {
+                      const optionLetter =
+                        String.fromCharCode(65 + index);
 
-                    if (!submitted && isSelected) {
-                      optionClasses =
-                        "border-[#2FA084] bg-[#2FA084]/5 ring-2 ring-[#2FA084]/10";
-                    }
+                      const isSelected =
+                        selectedAnswer === option;
 
-                    if (isCorrectOption) {
-                      optionClasses =
-                        "border-green-300 bg-green-50";
-                    }
+                      const isCorrectOption =
+                        submitted &&
+                        option ===
+                          currentQuestion.correct_answer;
 
-                    if (isWrongSelected) {
-                      optionClasses =
-                        "border-red-300 bg-red-50";
-                    }
+                      const isWrongSelected =
+                        submitted &&
+                        isSelected &&
+                        !isCorrect;
 
-                    return (
-                      <button
-                        key={index}
-                        onClick={() =>
-                          handleSelectAnswer(
-                            option
-                          )
-                        }
-                        disabled={submitted}
-                        className={`flex w-full items-start gap-4 rounded-xl border px-4 py-4 text-left transition ${optionClasses} ${
-                          submitted
-                            ? "cursor-default"
-                            : "cursor-pointer"
-                        }`}
-                      >
-                        <div
-                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold ${
-                            isCorrectOption
-                              ? "bg-green-500 text-white"
-                              : isWrongSelected
-                              ? "bg-red-500 text-white"
-                              : isSelected
-                              ? "bg-[#2FA084] text-white"
-                              : "bg-gray-100 text-gray-500"
+                      let borderClass =
+                        "border-[#e1e9e5] bg-white hover:-translate-y-0.5 hover:border-[#a9dfcc] hover:bg-[#f8fcfa] hover:shadow-sm";
+
+                      let letterClass =
+                        "bg-[#f1f4f2] text-[#71817b]";
+
+                      if (!submitted && isSelected) {
+                        borderClass =
+                          "border-[#2fa084] bg-[#f3faf7] ring-4 ring-[#2fa084]/8 shadow-sm";
+
+                        letterClass =
+                          "bg-[#2fa084] text-white";
+                      }
+
+                      if (isCorrectOption) {
+                        borderClass =
+                          "border-[#9ed6bd] bg-[#f1faf6] shadow-sm";
+
+                        letterClass =
+                          "bg-[#2fa084] text-white";
+                      }
+
+                      if (isWrongSelected) {
+                        borderClass =
+                          "border-[#eab8b8] bg-[#fff7f7] shadow-sm";
+
+                        letterClass =
+                          "bg-[#d66c6c] text-white";
+                      }
+
+                      return (
+                        <motion.button
+                          key={index}
+                          type="button"
+                          onClick={() =>
+                            handleSelectAnswer(option)
+                          }
+                          disabled={submitted}
+                          whileHover={
+                            !submitted
+                              ? { scale: 1.005 }
+                              : undefined
+                          }
+                          whileTap={
+                            !submitted
+                              ? { scale: 0.995 }
+                              : undefined
+                          }
+                          className={`group flex w-full items-start gap-3.5 rounded-2xl border px-4 py-4 text-left transition-all duration-200 sm:px-5 ${borderClass} ${
+                            submitted
+                              ? "cursor-default"
+                              : "cursor-pointer"
                           }`}
                         >
-                          {isCorrectOption ? (
-                            <CheckCircle2 size={18} />
-                          ) : isWrongSelected ? (
-                            <XCircle size={18} />
-                          ) : (
-                            optionLetter
+                          <span
+                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-xs font-bold transition-all duration-200 ${letterClass}`}
+                          >
+                            {isCorrectOption ? (
+                              <Check
+                                size={17}
+                                strokeWidth={2.5}
+                              />
+                            ) : isWrongSelected ? (
+                              <XCircle size={17} />
+                            ) : (
+                              optionLetter
+                            )}
+                          </span>
+
+                          <span
+                            className={`pt-1 text-sm font-medium leading-6 ${
+                              isCorrectOption
+                                ? "text-[#356f60]"
+                                : isWrongSelected
+                                ? "text-[#8f5656]"
+                                : "text-[#53635d]"
+                            }`}
+                          >
+                            {option}
+                          </span>
+
+                          {!submitted && isSelected && (
+                            <span className="ml-auto mt-1 shrink-0">
+                              <CheckCircle2
+                                size={17}
+                                className="text-[#2fa084]"
+                              />
+                            </span>
                           )}
-                        </div>
+                        </motion.button>
+                      );
+                    }
+                  )}
+                </div>
 
-                        <span className="pt-1 text-sm leading-6 text-gray-700">
-                          {option}
-                        </span>
-                      </button>
-                    );
-                  }
-                )}
-              </div>
-
-              {/* Feedback */}
-              {submitted && (
-                <div
-                  className={`mt-6 rounded-2xl border p-5 ${
-                    isCorrect
-                      ? "border-green-200 bg-green-50"
-                      : "border-red-200 bg-red-50"
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    {isCorrect ? (
-                      <CheckCircle2
-                        size={21}
-                        className="mt-0.5 shrink-0 text-green-600"
-                      />
-                    ) : (
-                      <XCircle
-                        size={21}
-                        className="mt-0.5 shrink-0 text-red-500"
-                      />
-                    )}
-
-                    <div className="min-w-0">
-                      <p
-                        className={`text-sm font-bold ${
+                {/* Feedback */}
+                <AnimatePresence initial={false}>
+                  {submitted && (
+                    <motion.div
+                      initial={{
+                        opacity: 0,
+                        height: 0,
+                        y: -8,
+                      }}
+                      animate={{
+                        opacity: 1,
+                        height: "auto",
+                        y: 0,
+                      }}
+                      exit={{
+                        opacity: 0,
+                        height: 0,
+                        y: -8,
+                      }}
+                      transition={{
+                        duration: 0.3,
+                        ease: "easeOut",
+                      }}
+                      className="overflow-hidden"
+                    >
+                      <div
+                        className={`mt-5 rounded-[20px] border px-5 py-5 ${
                           isCorrect
-                            ? "text-green-700"
-                            : "text-red-700"
+                            ? "border-[#cdeee1] bg-[#f2faf7]"
+                            : "border-[#efd1d1] bg-[#fff7f7]"
                         }`}
                       >
-                        {isCorrect
-                          ? "Correct!"
-                          : "Not quite."}
+                        <div className="flex items-start gap-3">
+                          <div
+                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+                              isCorrect
+                                ? "bg-[#dff3e9] text-[#2fa084]"
+                                : "bg-[#fdeaea] text-[#cf6868]"
+                            }`}
+                          >
+                            {isCorrect ? (
+                              <CheckCircle2 size={19} />
+                            ) : (
+                              <XCircle size={19} />
+                            )}
+                          </div>
+
+                          <div className="min-w-0">
+                            <p
+                              className={`text-sm font-bold ${
+                                isCorrect
+                                  ? "text-[#287864]"
+                                  : "text-[#a65b5b]"
+                              }`}
+                            >
+                              {isCorrect
+                                ? "Correct answer"
+                                : "Not quite this time"}
+                            </p>
+
+                            {!isCorrect && (
+                              <p className="mt-1.5 text-sm leading-6 text-[#6f7773]">
+                                <span className="font-semibold text-[#53635d]">
+                                  Correct answer:
+                                </span>{" "}
+                                {currentQuestion.correct_answer}
+                              </p>
+                            )}
+
+                            <div
+                              className={`mt-3 border-t pt-3 ${
+                                isCorrect
+                                  ? "border-[#dceee6]"
+                                  : "border-[#efdcdc]"
+                              }`}
+                            >
+                              <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-[#9aa6a1]">
+                                Explanation
+                              </p>
+
+                              <p className="mt-1.5 text-sm leading-6 text-[#65716c]">
+                                {currentQuestion.explanation}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Bottom actions */}
+                <div className="mt-7 flex flex-col-reverse gap-4 border-t border-[#edf1ef] pt-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-2 text-[10px] font-semibold text-[#9aa6a1]">
+                    <Flame
+                      size={13}
+                      className="text-[#2fa084]"
+                    />
+
+                    {quizAnalyticsLoading
+                      ? "Saving your quiz result..."
+                      : submitted
+                      ? "Review the explanation before continuing."
+                      : "Select one answer to continue."}
+                  </div>
+
+                  {!submitted ? (
+                    <button
+                      type="button"
+                      onClick={handleSubmitAnswer}
+                      disabled={!selectedAnswer}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2fa084] px-5 py-3 text-sm font-semibold text-white shadow-[0_5px_16px_rgba(47,160,132,0.16)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f6f5f] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
+                    >
+                      <CheckCircle2 size={17} />
+                      Submit Answer
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleNextQuestion}
+                      disabled={quizAnalyticsLoading}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2fa084] px-5 py-3 text-sm font-semibold text-white shadow-[0_5px_16px_rgba(47,160,132,0.16)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f6f5f] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {quizAnalyticsLoading ? (
+                        <>
+                          <Loader2
+                            size={17}
+                            className="animate-spin"
+                          />
+                          Saving Result...
+                        </>
+                      ) : (
+                        <>
+                          {questionNumber === totalQuestions
+                            ? "See Results"
+                            : "Next Question"}
+
+                          <ArrowRight size={17} />
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                {quizAnalyticsError && (
+                  <div className="mt-5 flex items-start gap-3 rounded-2xl border border-[#f0d8d8] bg-[#fff7f7] px-4 py-3">
+                    <AlertCircle
+                      size={17}
+                      className="mt-0.5 shrink-0 text-[#c96363]"
+                    />
+
+                    <div>
+                      <p className="text-sm font-semibold text-[#a85b5b]">
+                        Your quiz result could not be saved.
                       </p>
 
-                      {!isCorrect && (
-                        <p className="mt-2 text-sm text-gray-700">
-                          <span className="font-semibold">
-                            Correct answer:
-                          </span>{" "}
-                          {currentQuestion.correct_answer}
-                        </p>
-                      )}
+                      <p className="mt-1 text-xs leading-5 text-[#a86d6d]">
+                        {quizAnalyticsError}
+                      </p>
 
-                      <div className="mt-3 border-t border-black/5 pt-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                          Explanation
-                        </p>
-
-                        <p className="mt-1 text-sm leading-6 text-gray-700">
-                          {currentQuestion.explanation}
-                        </p>
-                      </div>
+                      <p className="mt-1 text-[11px] text-[#b57b7b]">
+                        Click the result button again to retry.
+                      </p>
                     </div>
                   </div>
-                </div>
-              )}
-
-              {/* Bottom Actions */}
-              <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-xs text-gray-400">
-                  {quizAnalyticsLoading
-                    ? "Saving your quiz result..."
-                    : submitted
-                    ? "Review the explanation before continuing."
-                    : "Select one answer to continue."}
-                </div>
-
-                {!submitted ? (
-                  <button
-                    onClick={handleSubmitAnswer}
-                    disabled={!selectedAnswer}
-                    className="flex items-center justify-center gap-2 rounded-xl bg-[#2FA084] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <CheckCircle2 size={17} />
-                    Submit Answer
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleNextQuestion}
-                    disabled={quizAnalyticsLoading}
-                    className="flex items-center justify-center gap-2 rounded-xl bg-[#2FA084] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {quizAnalyticsLoading ? (
-                      <>
-                        <Loader2
-                          size={17}
-                          className="animate-spin"
-                        />
-                        Saving Result...
-                      </>
-                    ) : (
-                      <>
-                        {questionNumber ===
-                        totalQuestions
-                          ? "See Results"
-                          : "Next Question"}
-
-                        <ArrowRight size={17} />
-                      </>
-                    )}
-                  </button>
                 )}
               </div>
-
-              {quizAnalyticsError && (
-                <div className="mt-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-                  <AlertCircle
-                    size={17}
-                    className="mt-0.5 shrink-0"
-                  />
-
-                  <div>
-                    <p className="font-semibold">
-                      Your quiz result could not be saved.
-                    </p>
-
-                    <p className="mt-1">
-                      {quizAnalyticsError}
-                    </p>
-
-                    <p className="mt-1 text-xs text-red-500">
-                      Click the result button again to retry.
-                    </p>
-                  </div>
-                </div>
-              )}
             </div>
-          </div>
+          </motion.div>
         </div>
       </div>
     );
@@ -991,235 +1261,391 @@ export default function Quiz() {
   // --------------------------------------------------
 
   return (
-    <div className="min-h-full bg-[#EEEEEE] px-4 py-5 sm:px-6 lg:px-8">
+    <div className="min-h-full bg-[#f4f7f6] px-4 py-5 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl">
+        <motion.div
+          initial="hidden"
+          animate="visible"
+          variants={pageVariants}
+        >
+          {/* Header */}
+          <section className="relative mb-5 overflow-hidden rounded-[26px] border border-[#dfeae5] bg-gradient-to-br from-white via-white to-[#f1faf6] px-5 py-6 shadow-[0_8px_30px_rgba(23,33,30,0.045)] sm:px-7 sm:py-7">
+            <div className="pointer-events-none absolute -right-20 -top-28 h-64 w-64 rounded-full bg-[#6fcf97]/10 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 h-40 w-40 rounded-full bg-[#cdeee1]/25 blur-3xl" />
 
-        {/* Header */}
-        <div className="mb-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#6FCF97]/20 text-[#1F6F5F]">
-              <ClipboardCheck size={23} />
-            </div>
+            <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-4">
+                <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[#cdeee1] bg-[#e8f6f0] text-[#1f6f5f] shadow-sm">
+                  <ClipboardCheck
+                    size={26}
+                    strokeWidth={1.9}
+                  />
 
-            <div>
-              <h1 className="text-2xl font-bold text-[#1F6F5F]">
-                Quiz Intelligence
-              </h1>
-
-              <p className="mt-1 text-sm text-gray-500">
-                Test your understanding of your study material.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Setup */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-
-            {/* Material */}
-            <div>
-              <label
-                htmlFor="quiz-material"
-                className="mb-2 block text-sm font-semibold text-gray-700"
-              >
-                Study Material
-              </label>
-
-              <select
-                id="quiz-material"
-                value={selectedMaterialId}
-                onChange={handleMaterialChange}
-                disabled={quizLoading}
-                className="w-full rounded-xl border border-gray-200 bg-[#F8F9F8] px-4 py-3 text-sm text-gray-700 outline-none transition focus:border-[#6FCF97] focus:ring-2 focus:ring-[#6FCF97]/20 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {materials.map((material) => (
-                  <option
-                    key={material.id}
-                    value={material.id}
-                  >
-                    {material.title}
-                  </option>
-                ))}
-              </select>
-
-              {selectedMaterial && (
-                <div className="mt-3 flex items-center gap-2 text-xs text-gray-400">
-                  <FileText size={14} />
-                  {selectedMaterial.size}
+                  <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[#2fa084] text-white shadow-sm">
+                    <Sparkles size={9} />
+                  </span>
                 </div>
-              )}
-            </div>
 
-            {/* Number */}
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-gray-700">
-                Number of Questions
-              </label>
-
-              <div className="grid grid-cols-4 gap-2">
-                {QUESTION_OPTIONS.map((number) => (
-                  <button
-                    key={number}
-                    onClick={() =>
-                      setNumQuestions(number)
-                    }
-                    disabled={quizLoading}
-                    className={`rounded-xl border px-3 py-3 text-sm font-semibold transition ${
-                      numQuestions === number
-                        ? "border-[#2FA084] bg-[#2FA084] text-white"
-                        : "border-gray-200 bg-white text-gray-600 hover:border-[#6FCF97] hover:text-[#1F6F5F]"
-                    } disabled:cursor-not-allowed disabled:opacity-60`}
-                  >
-                    {number}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Difficulty */}
-          <div className="mt-6">
-            <label className="mb-3 block text-sm font-semibold text-gray-700">
-              Difficulty
-            </label>
-
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              {DIFFICULTIES.map((item) => (
-                <button
-                  key={item.value}
-                  onClick={() =>
-                    setDifficulty(item.value)
-                  }
-                  disabled={quizLoading}
-                  className={`rounded-xl border p-4 text-left transition ${
-                    difficulty === item.value
-                      ? "border-[#2FA084] bg-[#2FA084]/5 ring-2 ring-[#2FA084]/10"
-                      : "border-gray-200 bg-white hover:border-[#6FCF97]"
-                  } disabled:cursor-not-allowed disabled:opacity-60`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span
-                      className={`text-sm font-semibold ${
-                        difficulty === item.value
-                          ? "text-[#1F6F5F]"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      {item.label}
+                <div className="min-w-0">
+                  <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#82968e]">
+                      Learning workspace
                     </span>
 
-                    {difficulty === item.value && (
-                      <CheckCircle2
-                        size={17}
-                        className="text-[#2FA084]"
-                      />
-                    )}
+                    <span className="h-1 w-1 rounded-full bg-[#a9dfcc]" />
+
+                    <span className="text-[10px] font-semibold text-[#2fa084]">
+                      AI-powered assessment
+                    </span>
                   </div>
 
-                  <p className="mt-1 text-xs leading-5 text-gray-400">
-                    {item.description}
+                  <h1 className="text-[25px] font-bold tracking-[-0.04em] text-[#176b5b] sm:text-[29px]">
+                    Quiz Intelligence
+                  </h1>
+
+                  <p className="mt-1 max-w-xl text-sm font-medium leading-5 text-[#7c8b85]">
+                    Turn your study material into focused,
+                    adaptive practice.
                   </p>
+                </div>
+              </div>
+
+              <div className="hidden shrink-0 items-center gap-3 rounded-2xl border border-[#dfeae5] bg-white/85 px-3.5 py-3 shadow-sm backdrop-blur-sm md:flex">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#e8f6f0] text-[#2fa084]">
+                  <Sparkles size={16} />
+                </div>
+
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#9aa6a1]">
+                    EduMind AI
+                  </p>
+
+                  <p className="mt-0.5 text-xs font-semibold text-[#53635d]">
+                    Learn by testing yourself
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Setup card */}
+          <section className="overflow-hidden rounded-[26px] border border-[#dfeae5] bg-white shadow-[0_8px_30px_rgba(23,33,30,0.05)]">
+            <div className="border-b border-[#edf1ef] px-5 py-5 sm:px-7">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#93a19b]">
+                    Configure your session
+                  </p>
+
+                  <h2 className="mt-1 text-lg font-bold tracking-[-0.02em] text-[#2d4039]">
+                    Build your quiz
+                  </h2>
+                </div>
+
+                <div className="hidden h-9 w-9 items-center justify-center rounded-xl bg-[#f3faf7] text-[#2fa084] sm:flex">
+                  <Target size={17} />
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 py-6 sm:px-7 sm:py-7">
+              <div className="grid grid-cols-1 gap-7 lg:grid-cols-2">
+                {/* Material */}
+                <div>
+                  <div className="mb-2.5 flex items-center justify-between">
+                    <label
+                      htmlFor="quiz-material"
+                      className="text-sm font-bold text-[#4d5d57]"
+                    >
+                      Study Material
+                    </label>
+
+                    <span className="text-[10px] font-semibold text-[#9aa6a1]">
+                      PDF
+                    </span>
+                  </div>
+
+                  <div className="relative">
+                    <select
+                      id="quiz-material"
+                      value={selectedMaterialId}
+                      onChange={handleMaterialChange}
+                      disabled={quizLoading}
+                      className="w-full appearance-none rounded-xl border border-[#dfe8e4] bg-[#f8faf9] px-4 py-3.5 pr-11 text-sm font-medium text-[#53635d] outline-none transition-all duration-200 hover:border-[#c9ddd5] focus:border-[#6fcf97] focus:bg-white focus:ring-4 focus:ring-[#6fcf97]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {materials.map((material) => (
+                        <option
+                          key={material.id}
+                          value={material.id}
+                        >
+                          {material.title}
+                        </option>
+                      ))}
+                    </select>
+
+                    <ChevronDown
+                      size={17}
+                      className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[#899790]"
+                    />
+                  </div>
+
+                  {selectedMaterial && (
+                    <div className="mt-2.5 flex items-center gap-2">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#e8f6f0] text-[#2fa084]">
+                        <FileText size={12} />
+                      </span>
+
+                      <span className="truncate text-[11px] font-medium text-[#89958f]">
+                        {selectedMaterial.size}
+                      </span>
+
+                      <span className="ml-auto rounded-full bg-[#f3f8f5] px-2 py-1 text-[9px] font-bold text-[#648077]">
+                        Ready
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Number */}
+                <div>
+                  <div className="mb-2.5 flex items-center justify-between">
+                    <label className="text-sm font-bold text-[#4d5d57]">
+                      Number of Questions
+                    </label>
+
+                    <span className="text-[10px] font-semibold text-[#2fa084]">
+                      {numQuestions} selected
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-2">
+                    {QUESTION_OPTIONS.map((number) => (
+                      <button
+                        key={number}
+                        type="button"
+                        onClick={() =>
+                          setNumQuestions(number)
+                        }
+                        disabled={quizLoading}
+                        className={`rounded-xl border px-3 py-3.5 text-sm font-bold transition-all duration-200 ${
+                          numQuestions === number
+                            ? "border-[#2fa084] bg-[#2fa084] text-white shadow-[0_5px_15px_rgba(47,160,132,0.16)]"
+                            : "border-[#dfe8e4] bg-white text-[#65736d] hover:-translate-y-0.5 hover:border-[#a9dfcc] hover:bg-[#f7fbf9] hover:text-[#1f6f5f]"
+                        } disabled:cursor-not-allowed disabled:opacity-60`}
+                      >
+                        {number}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Difficulty */}
+              <div className="mt-7 border-t border-[#edf1ef] pt-7">
+                <div className="mb-3 flex items-center justify-between">
+                  <label className="text-sm font-bold text-[#4d5d57]">
+                    Difficulty
+                  </label>
+
+                  <span className="text-[10px] font-semibold capitalize text-[#89958f]">
+                    {difficulty} mode
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  {DIFFICULTIES.map((item) => {
+                    const Icon = item.icon;
+                    const isActive =
+                      difficulty === item.value;
+
+                    return (
+                      <button
+                        key={item.value}
+                        type="button"
+                        onClick={() =>
+                          setDifficulty(item.value)
+                        }
+                        disabled={quizLoading}
+                        className={`group relative overflow-hidden rounded-2xl border p-4 text-left transition-all duration-200 ${
+                          isActive
+                            ? "border-[#a9dfcc] bg-[#f4faf7] shadow-sm ring-4 ring-[#2fa084]/5"
+                            : "border-[#e1e9e5] bg-white hover:-translate-y-0.5 hover:border-[#c8ddd5] hover:bg-[#fafcfb]"
+                        } disabled:cursor-not-allowed disabled:opacity-60`}
+                      >
+                        {isActive && (
+                          <span className="absolute right-0 top-0 h-16 w-16 rounded-bl-full bg-[#e8f6f0]" />
+                        )}
+
+                        <div className="relative flex items-start justify-between gap-3">
+                          <div
+                            className={`flex h-10 w-10 items-center justify-center rounded-xl ${item.accent}`}
+                          >
+                            <Icon size={18} />
+                          </div>
+
+                          {isActive && (
+                            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#2fa084] text-white shadow-sm">
+                              <Check size={13} strokeWidth={2.7} />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="relative mt-4">
+                          <p
+                            className={`text-sm font-bold ${
+                              isActive
+                                ? "text-[#1f6f5f]"
+                                : "text-[#53635d]"
+                            }`}
+                          >
+                            {item.label}
+                          </p>
+
+                          <p className="mt-1 text-[11px] leading-5 text-[#8a9791]">
+                            {item.description}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Generate */}
+              <div className="mt-7 flex flex-col gap-4 border-t border-[#edf1ef] pt-6 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Sparkles
+                      size={14}
+                      className="text-[#2fa084]"
+                    />
+
+                    <p className="text-xs font-bold text-[#53635d]">
+                      Ready to test your understanding?
+                    </p>
+                  </div>
+
+                  <p className="mt-1 text-[10px] leading-5 text-[#9aa6a1]">
+                    EduMind will generate a fresh quiz from your
+                    selected material.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleGenerateQuiz}
+                  disabled={
+                    quizLoading ||
+                    !selectedMaterialId
+                  }
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#2fa084] px-6 py-3.5 text-sm font-semibold text-white shadow-[0_6px_18px_rgba(47,160,132,0.16)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#1f6f5f] hover:shadow-[0_8px_22px_rgba(47,160,132,0.2)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 sm:w-auto"
+                >
+                  {quizLoading ? (
+                    <>
+                      <Loader2
+                        size={18}
+                        className="animate-spin"
+                      />
+                      Generating Quiz...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={18} />
+                      Generate Quiz
+                      <ArrowRight size={16} />
+                    </>
+                  )}
                 </button>
-              ))}
-            </div>
-          </div>
+              </div>
 
-          {/* Generate */}
-          <div className="mt-7 border-t border-gray-100 pt-6">
-            <button
-              onClick={handleGenerateQuiz}
-              disabled={
-                quizLoading ||
-                !selectedMaterialId
-              }
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#2FA084] px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1F6F5F] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-            >
-              {quizLoading ? (
-                <>
-                  <Loader2
+              {quizError && (
+                <motion.div
+                  initial={{
+                    opacity: 0,
+                    y: -5,
+                  }}
+                  animate={{
+                    opacity: 1,
+                    y: 0,
+                  }}
+                  className="mt-5 flex items-start gap-3 rounded-2xl border border-[#f0d8d8] bg-[#fff7f7] px-4 py-3"
+                >
+                  <AlertCircle
                     size={18}
-                    className="animate-spin"
+                    className="mt-0.5 shrink-0 text-[#c96363]"
                   />
-                  Generating Quiz...
-                </>
-              ) : (
-                <>
-                  <Sparkles size={18} />
-                  Generate Quiz
-                </>
+
+                  <div>
+                    <p className="text-sm font-semibold text-[#a85b5b]">
+                      Quiz generation failed
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-[#a86d6d]">
+                      {quizError}
+                    </p>
+                  </div>
+                </motion.div>
               )}
-            </button>
-
-            <p className="mt-3 text-xs text-gray-400">
-              EduMind will generate a fresh quiz from the
-              selected study material.
-            </p>
-          </div>
-
-          {/* Error */}
-          {quizError && (
-            <div className="mt-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-              <AlertCircle
-                size={18}
-                className="mt-0.5 shrink-0"
-              />
-
-              <span>{quizError}</span>
             </div>
-          )}
-        </div>
+          </section>
 
-        {/* Info */}
-        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+          {/* Value cards */}
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <motion.div
+              variants={itemVariants}
+              className="group rounded-2xl border border-[#dfeae5] bg-white p-5 shadow-[0_5px_20px_rgba(23,33,30,0.035)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_25px_rgba(23,33,30,0.055)]"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#e8f6f0] text-[#2fa084]">
+                <FileText size={18} />
+              </div>
 
-          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#6FCF97]/20 text-[#1F6F5F]">
-              <FileText size={19} />
-            </div>
+              <h3 className="mt-4 text-sm font-bold text-[#53635d]">
+                Document Grounded
+              </h3>
 
-            <h3 className="mt-4 text-sm font-semibold text-gray-700">
-              Document Grounded
-            </h3>
+              <p className="mt-1.5 text-[11px] leading-5 text-[#8b9792]">
+                Questions are generated directly from your uploaded
+                study material.
+              </p>
+            </motion.div>
 
-            <p className="mt-1 text-xs leading-5 text-gray-400">
-              Questions are generated from your uploaded
-              study material.
-            </p>
+            <motion.div
+              variants={itemVariants}
+              className="group rounded-2xl border border-[#dfeae5] bg-white p-5 shadow-[0_5px_20px_rgba(23,33,30,0.035)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_25px_rgba(23,33,30,0.055)]"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#e8f6f0] text-[#2fa084]">
+                <ClipboardCheck size={18} />
+              </div>
+
+              <h3 className="mt-4 text-sm font-bold text-[#53635d]">
+                Instant Feedback
+              </h3>
+
+              <p className="mt-1.5 text-[11px] leading-5 text-[#8b9792]">
+                Review the correct answer and explanation after every
+                question.
+              </p>
+            </motion.div>
+
+            <motion.div
+              variants={itemVariants}
+              className="group rounded-2xl border border-[#dfeae5] bg-white p-5 shadow-[0_5px_20px_rgba(23,33,30,0.035)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_25px_rgba(23,33,30,0.055)]"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#e8f6f0] text-[#2fa084]">
+                <Sparkles size={18} />
+              </div>
+
+              <h3 className="mt-4 text-sm font-bold text-[#53635d]">
+                Fresh Questions
+              </h3>
+
+              <p className="mt-1.5 text-[11px] leading-5 text-[#8b9792]">
+                Retry the quiz to generate a new set of questions and
+                keep practicing.
+              </p>
+            </motion.div>
           </div>
-
-          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#6FCF97]/20 text-[#1F6F5F]">
-              <ClipboardCheck size={19} />
-            </div>
-
-            <h3 className="mt-4 text-sm font-semibold text-gray-700">
-              Instant Feedback
-            </h3>
-
-            <p className="mt-1 text-xs leading-5 text-gray-400">
-              See the correct answer and explanation after
-              every question.
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#6FCF97]/20 text-[#1F6F5F]">
-              <Sparkles size={19} />
-            </div>
-
-            <h3 className="mt-4 text-sm font-semibold text-gray-700">
-              Fresh Questions
-            </h3>
-
-            <p className="mt-1 text-xs leading-5 text-gray-400">
-              Retry the quiz to generate a new set of
-              questions.
-            </p>
-          </div>
-
-        </div>
+        </motion.div>
       </div>
     </div>
   );

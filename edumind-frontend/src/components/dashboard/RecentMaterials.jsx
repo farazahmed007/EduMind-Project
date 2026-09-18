@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowRight,
+  ArrowUpRight,
+  Clock3,
   FileText,
   FileType,
   Presentation,
-  Clock3,
-  ArrowRight,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../../context/AuthContext";
 
+
 const API_BASE_URL = "http://127.0.0.1:8000";
+
 
 const formatFileSize = (size) => {
   if (size === null || size === undefined || size === "") {
@@ -44,6 +47,7 @@ const formatFileSize = (size) => {
     (1024 * 1024 * 1024)
   ).toFixed(1)} GB`;
 };
+
 
 const formatRelativeDate = (value) => {
   if (!value) {
@@ -94,6 +98,7 @@ const formatRelativeDate = (value) => {
   });
 };
 
+
 const getMaterialIcon = (material) => {
   const type = String(
     material?.type ||
@@ -107,8 +112,9 @@ const getMaterialIcon = (material) => {
   ) {
     return {
       icon: Presentation,
-      iconBg: "bg-orange-50",
-      iconColor: "text-orange-500",
+      iconBg: "bg-[#fff4e7]",
+      iconColor: "text-[#d58b32]",
+      typeLabel: "Presentation",
     };
   }
 
@@ -118,17 +124,20 @@ const getMaterialIcon = (material) => {
   ) {
     return {
       icon: FileType,
-      iconBg: "bg-blue-50",
-      iconColor: "text-blue-500",
+      iconBg: "bg-[#eef4ff]",
+      iconColor: "text-[#5478c8]",
+      typeLabel: "Document",
     };
   }
 
   return {
     icon: FileText,
-    iconBg: "bg-red-50",
-    iconColor: "text-red-500",
+    iconBg: "bg-[#fff0f0]",
+    iconColor: "text-[#c96363]",
+    typeLabel: "File",
   };
 };
+
 
 function RecentMaterials() {
   const navigate = useNavigate();
@@ -136,6 +145,7 @@ function RecentMaterials() {
 
   const [materials, setMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
+
 
   useEffect(() => {
     if (!token) {
@@ -183,15 +193,20 @@ function RecentMaterials() {
     fetchMaterials();
   }, [token]);
 
+
   const recentMaterials = useMemo(() => {
     return [...materials]
       .sort((a, b) => {
         const dateA = new Date(
-          a.created_at || a.updated_at || 0
+          a.created_at ||
+            a.updated_at ||
+            0
         ).getTime();
 
         const dateB = new Date(
-          b.created_at || b.updated_at || 0
+          b.created_at ||
+            b.updated_at ||
+            0
         ).getTime();
 
         return dateB - dateA;
@@ -199,137 +214,210 @@ function RecentMaterials() {
       .slice(0, 4);
   }, [materials]);
 
+
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+    <div className="relative overflow-hidden rounded-2xl border border-[#e1ebe6] bg-white p-6 shadow-[0_6px_24px_rgba(23,33,30,0.045)]">
 
+      {/* ================================================= */}
       {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* ================================================= */}
 
-        <div>
-          <h3 className="text-lg font-semibold text-[#1F6F5F]">
+      <div className="relative flex items-start justify-between gap-4">
+
+        <div className="min-w-0">
+
+          <div className="flex items-center gap-2">
+
+            <span className="h-1.5 w-1.5 rounded-full bg-[#2fa084]" />
+
+            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#94a39d]">
+              Library
+            </span>
+
+          </div>
+
+          <h3 className="mt-1.5 text-[18px] font-bold tracking-[-0.02em] text-[#25322e]">
             Recent Learning Materials
           </h3>
 
-          <p className="mt-1 text-sm text-gray-500">
-            Continue learning from your recent materials.
+          <p className="mt-1 text-xs leading-5 text-[#899690]">
+            Continue learning from your most recently added materials.
           </p>
+
         </div>
 
+
         <button
+          type="button"
           onClick={() => navigate("/library")}
-          className="hidden items-center gap-1 text-sm font-semibold text-[#2FA084] transition hover:text-[#1F6F5F] sm:flex"
+          className="group hidden shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-bold text-[#2fa084] transition-all duration-200 hover:bg-[#f2f8f5] hover:text-[#1f6f5f] sm:flex"
         >
           View Library
-          <ArrowRight size={16} />
+
+          <ArrowRight
+            size={15}
+            strokeWidth={2}
+            className="transition-transform duration-200 group-hover:translate-x-0.5"
+          />
         </button>
 
       </div>
 
+
+      {/* ================================================= */}
       {/* Loading State */}
+      {/* ================================================= */}
+
       {loading && (
-        <div className="mt-5 space-y-4">
+        <div className="mt-6 space-y-1">
+
           {Array.from({ length: 4 }).map((_, index) => (
             <div
               key={index}
-              className="flex items-center gap-4 py-4"
+              className="flex items-center gap-4 rounded-xl px-2 py-3"
             >
-              <div className="h-11 w-11 shrink-0 animate-pulse rounded-xl bg-gray-100" />
+
+              <div className="h-11 w-11 shrink-0 animate-pulse rounded-xl bg-[#edf3f0]" />
 
               <div className="min-w-0 flex-1">
-                <div className="h-4 w-2/3 animate-pulse rounded bg-gray-100" />
+                <div className="h-3.5 w-2/3 animate-pulse rounded bg-[#e7eeeb]" />
 
-                <div className="mt-2 h-3 w-1/2 animate-pulse rounded bg-gray-100" />
+                <div className="mt-2 h-2.5 w-1/2 animate-pulse rounded bg-[#f0f4f2]" />
               </div>
+
+              <div className="hidden h-8 w-14 animate-pulse rounded-lg bg-[#edf3f0] sm:block" />
+
             </div>
           ))}
+
         </div>
       )}
 
-      {/* Empty State */}
-      {!loading && recentMaterials.length === 0 && (
-        <div className="mt-5 rounded-xl bg-[#F8F9F8] px-6 py-10 text-center">
-          <FileText
-            size={30}
-            className="mx-auto text-gray-300"
-          />
 
-          <p className="mt-3 text-sm font-medium text-gray-500">
-            You haven't uploaded any learning materials yet.
+      {/* ================================================= */}
+      {/* Empty State */}
+      {/* ================================================= */}
+
+      {!loading && recentMaterials.length === 0 && (
+        <div className="mt-6 rounded-2xl border border-dashed border-[#dce7e2] bg-[#f8fbfa] px-6 py-11 text-center">
+
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-[#aab8b2] shadow-sm">
+            <FileText
+              size={23}
+              strokeWidth={1.8}
+            />
+          </div>
+
+          <p className="mt-4 text-sm font-semibold text-[#596862]">
+            Your learning library is waiting.
+          </p>
+
+          <p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-[#9aa7a2]">
+            Upload your first study material and start building your personalized learning space.
           </p>
 
           <button
+            type="button"
             onClick={() => navigate("/library")}
-            className="mt-4 rounded-xl bg-[#2FA084] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1F6F5F]"
+            className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#1f6f5f] px-4 py-2.5 text-xs font-bold text-white shadow-[0_7px_18px_rgba(31,111,95,0.15)] transition-all duration-200 hover:bg-[#19594d] hover:shadow-[0_9px_22px_rgba(31,111,95,0.2)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#6fcf97]/20"
           >
             Go to Library
+
+            <ArrowUpRight
+              size={14}
+              strokeWidth={2.2}
+            />
           </button>
+
         </div>
       )}
 
+
+      {/* ================================================= */}
       {/* Materials */}
+      {/* ================================================= */}
+
       {!loading && recentMaterials.length > 0 && (
-        <div className="mt-5 divide-y divide-gray-100">
+        <div className="relative mt-6 space-y-1">
 
           {recentMaterials.map((material) => {
+
             const {
               icon: Icon,
               iconBg,
               iconColor,
+              typeLabel,
             } = getMaterialIcon(material);
+
 
             const materialType =
               material.type ||
               material.file_type ||
               "FILE";
 
+
             const materialSize = formatFileSize(
               material.size ??
                 material.file_size
             );
 
+
             const materialDate =
               material.created_at ||
               material.updated_at;
 
+
             return (
               <div
                 key={material.id}
-                className="group flex items-center gap-4 py-4 first:pt-0 last:pb-0"
+                className="group flex items-center gap-3 rounded-xl border border-transparent px-2 py-3 transition-all duration-200 hover:border-[#e2ece8] hover:bg-[#f8fbfa] sm:gap-4"
               >
 
-                {/* File Icon */}
+                {/* File icon */}
+
                 <div
-                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${iconBg}`}
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${iconBg} ${iconColor} shadow-sm transition-transform duration-200 group-hover:scale-105`}
                 >
                   <Icon
-                    size={21}
-                    className={iconColor}
+                    size={20}
+                    strokeWidth={1.9}
                   />
                 </div>
 
-                {/* Material Info */}
+
+                {/* Material information */}
+
                 <div className="min-w-0 flex-1">
 
-                  <h4 className="truncate text-sm font-semibold text-gray-700 transition group-hover:text-[#1F6F5F]">
+                  <h4 className="truncate text-xs font-bold text-[#4f5e58] transition-colors duration-200 group-hover:text-[#1f6f5f] sm:text-sm">
                     {material.title}
                   </h4>
 
-                  <div className="mt-1 flex items-center gap-2 text-xs text-gray-400">
 
-                    <span>
+                  <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
+
+                    <span className="rounded-md bg-[#f1f5f3] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#788781]">
                       {String(materialType).toUpperCase()}
                     </span>
 
-                    <span>•</span>
+                    <span className="hidden text-[#c4cdc9] sm:inline">
+                      •
+                    </span>
 
-                    <span>
+                    <span className="text-[10px] font-medium text-[#9aa7a2]">
                       {materialSize}
                     </span>
 
-                    <span>•</span>
+                    <span className="hidden text-[#c4cdc9] sm:inline">
+                      •
+                    </span>
 
-                    <span className="flex items-center gap-1">
-                      <Clock3 size={12} />
+                    <span className="flex items-center gap-1 text-[10px] font-medium text-[#9aa7a2]">
+                      <Clock3
+                        size={11}
+                        strokeWidth={2}
+                      />
+
                       {formatRelativeDate(materialDate)}
                     </span>
 
@@ -337,16 +425,50 @@ function RecentMaterials() {
 
                 </div>
 
-                {/* Open Button */}
+
+                {/* Type label */}
+
+                <span className="hidden shrink-0 rounded-lg bg-[#f8faf9] px-2 py-1 text-[9px] font-semibold text-[#98a49f] lg:block">
+                  {typeLabel}
+                </span>
+
+
+                {/* Open button */}
+
                 <button
+                  type="button"
                   onClick={() =>
                     navigate(
                       `/library/${material.id}`
                     )
                   }
-                  className="hidden rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:border-[#2FA084] hover:text-[#1F6F5F] sm:block"
+                  className="hidden shrink-0 items-center gap-1.5 rounded-lg border border-[#dfe8e4] bg-white px-3 py-2 text-[10px] font-bold text-[#66756e] shadow-sm transition-all duration-200 hover:border-[#bcded0] hover:bg-[#f3faf7] hover:text-[#1f6f5f] sm:flex"
                 >
                   Open
+
+                  <ArrowUpRight
+                    size={12}
+                    strokeWidth={2.2}
+                  />
+                </button>
+
+
+                {/* Mobile arrow */}
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate(
+                      `/library/${material.id}`
+                    )
+                  }
+                  aria-label={`Open ${material.title}`}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#a2aea9] transition-colors duration-200 hover:bg-[#eaf6f1] hover:text-[#2fa084] sm:hidden"
+                >
+                  <ArrowUpRight
+                    size={16}
+                    strokeWidth={2}
+                  />
                 </button>
 
               </div>
@@ -356,17 +478,27 @@ function RecentMaterials() {
         </div>
       )}
 
+
+      {/* ================================================= */}
       {/* Mobile Library Button */}
+      {/* ================================================= */}
+
       <button
+        type="button"
         onClick={() => navigate("/library")}
-        className="mt-5 flex w-full items-center justify-center gap-1 rounded-xl border border-[#2FA084] py-2.5 text-sm font-semibold text-[#1F6F5F] transition hover:bg-[#2FA084] hover:text-white sm:hidden"
+        className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#cfe3da] bg-[#f8fbfa] py-2.5 text-xs font-bold text-[#1f6f5f] transition-all duration-200 hover:border-[#2fa084] hover:bg-[#2fa084] hover:text-white sm:hidden"
       >
         View Library
-        <ArrowRight size={16} />
+
+        <ArrowRight
+          size={15}
+          strokeWidth={2}
+        />
       </button>
 
     </div>
   );
 }
+
 
 export default RecentMaterials;

@@ -5,18 +5,20 @@ import {
   Target,
   TrendingUp,
   Layers3,
-  Loader2,
 } from "lucide-react";
 
 import { useAuth } from "../../context/AuthContext";
 
+
 const API_BASE_URL = "http://127.0.0.1:8000";
+
 
 function StatsCards() {
   const { token } = useAuth();
 
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
+
 
   useEffect(() => {
     if (!token) {
@@ -57,113 +59,205 @@ function StatsCards() {
     fetchAnalytics();
   }, [token]);
 
+
   const overview = analytics?.overview || {};
+
 
   const stats = [
     {
       title: "Study Materials",
       value: overview.total_materials || 0,
-      change: "Materials in your library",
+      description: "Materials in your library",
       icon: BookOpen,
-      iconBg: "bg-[#6FCF97]/20",
-      iconColor: "text-[#1F6F5F]",
-      changeColor: "text-[#2FA084]",
+      iconBg: "bg-[#e5f5ee]",
+      iconColor: "text-[#2fa084]",
+      accent: "bg-[#2fa084]",
+      glow: "bg-[#6fcf97]/10",
     },
     {
       title: "Quizzes Taken",
       value: overview.quizzes_completed || 0,
-      change: "Completed quiz attempts",
+      description: "Completed quiz attempts",
       icon: Target,
-      iconBg: "bg-blue-100",
-      iconColor: "text-blue-600",
-      changeColor: "text-[#2FA084]",
+      iconBg: "bg-[#eef4ff]",
+      iconColor: "text-[#5478c8]",
+      accent: "bg-[#6d8fda]",
+      glow: "bg-[#8eafff]/10",
     },
     {
       title: "Average Score",
       value: `${overview.average_quiz_score || 0}%`,
-      change: "Across completed quizzes",
+      description: "Across completed quizzes",
       icon: TrendingUp,
-      iconBg: "bg-orange-100",
-      iconColor: "text-orange-500",
-      changeColor: "text-[#2FA084]",
+      iconBg: "bg-[#fff5e8]",
+      iconColor: "text-[#d58b32]",
+      accent: "bg-[#e0a34f]",
+      glow: "bg-[#f4c77b]/10",
     },
     {
       title: "Flashcards Reviewed",
       value: overview.flashcards_reviewed || 0,
-      change: "Cards reviewed",
+      description: "Cards reviewed",
       icon: Layers3,
-      iconBg: "bg-purple-100",
-      iconColor: "text-purple-500",
-      changeColor: "text-[#2FA084]",
+      iconBg: "bg-[#f4edff]",
+      iconColor: "text-[#8565c2]",
+      accent: "bg-[#9b7bd4]",
+      glow: "bg-[#c1a7ee]/10",
     },
   ];
+
 
   if (loading) {
     return (
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+
         {Array.from({ length: 4 }).map((_, index) => (
           <div
             key={index}
-            className="flex min-h-[120px] items-center justify-center rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
+            className="min-h-[148px] overflow-hidden rounded-2xl border border-[#e2ebe7] bg-white p-5 shadow-[0_6px_24px_rgba(23,33,30,0.04)]"
           >
-            <Loader2
-              className="h-6 w-6 animate-spin text-[#2FA084]"
-            />
+            <div className="animate-pulse">
+
+              <div className="flex items-start justify-between">
+                <div className="h-11 w-11 rounded-xl bg-[#edf3f0]" />
+                <div className="h-3 w-10 rounded-full bg-[#edf3f0]" />
+              </div>
+
+              <div className="mt-5 h-3 w-24 rounded-full bg-[#edf3f0]" />
+
+              <div className="mt-2 h-7 w-16 rounded-lg bg-[#e5ece9]" />
+
+              <div className="mt-3 h-2.5 w-36 rounded-full bg-[#f0f4f2]" />
+
+            </div>
           </div>
         ))}
+
       </div>
     );
   }
 
+
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      {stats.map((stat) => {
+
+      {stats.map((stat, index) => {
         const Icon = stat.icon;
 
         return (
           <motion.div
             key={stat.title}
-            whileHover={{
-              y: -4,
-              transition: { duration: 0.2 },
+            initial={{
+              opacity: 0,
+              y: 10,
             }}
-            whileTap={{ scale: 0.98 }}
-            className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md"
+            animate={{
+              opacity: 1,
+              y: 0,
+            }}
+            transition={{
+              duration: 0.35,
+              delay: index * 0.06,
+              ease: "easeOut",
+            }}
+            whileHover={{
+              y: -5,
+              transition: {
+                duration: 0.2,
+                ease: "easeOut",
+              },
+            }}
+            whileTap={{
+              scale: 0.99,
+            }}
+            className="group relative min-h-[148px] overflow-hidden rounded-2xl border border-[#e1ebe6] bg-white p-5 shadow-[0_6px_24px_rgba(23,33,30,0.045)] transition-shadow duration-300 hover:shadow-[0_14px_36px_rgba(23,33,30,0.09)]"
           >
-            <div className="flex items-center gap-4">
 
-              {/* Icon */}
+            {/* Decorative glow */}
+
+            <div
+              className={`pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full ${stat.glow} opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-100`}
+            />
+
+
+            {/* Top row */}
+
+            <div className="relative flex items-start justify-between">
+
               <div
-                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${stat.iconBg}`}
+                className={`flex h-11 w-11 items-center justify-center rounded-xl ${stat.iconBg} ${stat.iconColor} ring-1 ring-black/[0.02] transition-transform duration-300 group-hover:scale-105`}
               >
                 <Icon
-                  className={`h-6 w-6 ${stat.iconColor}`}
+                  size={21}
+                  strokeWidth={2}
                 />
               </div>
 
-              {/* Content */}
-              <div>
-                <p className="text-sm font-medium text-gray-500">
-                  {stat.title}
-                </p>
 
-                <h3 className="mt-1 text-2xl font-bold text-[#1F6F5F]">
-                  {stat.value}
-                </h3>
+              <div className="flex items-center gap-1.5 pt-1">
 
-                <p
-                  className={`mt-1 text-xs font-medium ${stat.changeColor}`}
-                >
-                  {stat.change}
-                </p>
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${stat.accent}`}
+                />
+
+                <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#9aa7a2]">
+                  Live
+                </span>
+
               </div>
 
             </div>
+
+
+            {/* Metric */}
+
+            <div className="relative mt-5">
+
+              <p className="text-xs font-semibold tracking-wide text-[#71817b]">
+                {stat.title}
+              </p>
+
+              <div className="mt-1 flex items-baseline gap-1.5">
+
+                <h3 className="text-[28px] font-bold leading-none tracking-[-0.035em] text-[#17211e]">
+                  {stat.value}
+                </h3>
+
+              </div>
+
+            </div>
+
+
+            {/* Description */}
+
+            <div className="relative mt-3 flex items-center justify-between gap-3">
+
+              <p className="truncate text-[11px] font-medium text-[#8a9892]">
+                {stat.description}
+              </p>
+
+              <div className="h-1 w-7 shrink-0 overflow-hidden rounded-full bg-[#edf2ef]">
+                <div
+                  className={`h-full w-2/3 rounded-full ${stat.accent} opacity-70 transition-all duration-500 group-hover:w-full`}
+                />
+              </div>
+
+            </div>
+
+
+            {/* Bottom accent */}
+
+            <div
+              className={`absolute bottom-0 left-0 h-[2px] w-0 ${stat.accent} transition-all duration-300 group-hover:w-full`}
+            />
+
           </motion.div>
         );
       })}
+
     </div>
   );
 }
+
 
 export default StatsCards;

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import {
+  ArrowRight,
+  CalendarDays,
   Check,
   Clock3,
   Circle,
-  CalendarDays,
-  ArrowRight,
+  ListChecks,
   Loader2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -15,7 +16,9 @@ import {
   subscribeToPlannerUpdates,
 } from "../../utils/plannerEvents";
 
+
 const API_BASE_URL = "http://127.0.0.1:8000";
+
 
 function TodaysTasks() {
   const navigate = useNavigate();
@@ -24,6 +27,7 @@ function TodaysTasks() {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
 
   // ==================================================
   // FETCH TODAY'S TASKS
@@ -78,6 +82,7 @@ function TodaysTasks() {
     }
   };
 
+
   // ==================================================
   // INITIAL FETCH + PLANNER SYNCHRONIZATION
   // ==================================================
@@ -93,13 +98,12 @@ function TodaysTasks() {
     return unsubscribe;
   }, [token]);
 
+
   // ==================================================
   // TOGGLE TASK COMPLETION
   // ==================================================
 
-  const handleToggleComplete = async (
-    task
-  ) => {
+  const handleToggleComplete = async (task) => {
     if (!token) {
       return;
     }
@@ -113,12 +117,10 @@ function TodaysTasks() {
           method: "PATCH",
           headers: {
             Authorization: `Bearer ${token}`,
-            "Content-Type":
-              "application/json",
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            completed:
-              !task.completed,
+            completed: !task.completed,
           }),
         }
       );
@@ -140,8 +142,6 @@ function TodaysTasks() {
         )
       );
 
-      // Tell Planner and other dashboard
-      // components that the task changed.
       notifyPlannerUpdated();
     } catch (err) {
       console.error(
@@ -155,6 +155,7 @@ function TodaysTasks() {
     }
   };
 
+
   // ==================================================
   // TASK STATISTICS
   // ==================================================
@@ -163,6 +164,7 @@ function TodaysTasks() {
     tasks.filter(
       (task) => task.completed
     ).length;
+
 
   const progress =
     tasks.length > 0
@@ -173,212 +175,400 @@ function TodaysTasks() {
         )
       : 0;
 
+
+  const remainingTasks =
+    Math.max(
+      0,
+      tasks.length - completedTasks
+    );
+
+
   // ==================================================
   // RENDER
   // ==================================================
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-      {/* ==================================================
-          HEADER
-          ================================================== */}
+    <div className="relative overflow-hidden rounded-2xl border border-[#e1ebe6] bg-white p-6 shadow-[0_6px_24px_rgba(23,33,30,0.045)]">
 
-      <div className="flex items-start justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-[#1F6F5F]">
+      {/* Decorative glow */}
+
+      <div className="pointer-events-none absolute -right-16 -top-16 h-36 w-36 rounded-full bg-[#6fcf97]/8 blur-3xl" />
+
+
+      {/* ================================================= */}
+      {/* Header */}
+      {/* ================================================= */}
+
+      <div className="relative flex items-start justify-between gap-4">
+
+        <div className="min-w-0">
+
+          <div className="flex items-center gap-2">
+
+            <span className="h-1.5 w-1.5 rounded-full bg-[#2fa084]" />
+
+            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#94a39d]">
+              Today
+            </span>
+
+          </div>
+
+          <h3 className="mt-1.5 text-[18px] font-bold tracking-[-0.02em] text-[#25322e]">
             Today's Tasks
           </h3>
 
-          <p className="mt-1 text-sm text-gray-500">
-            Stay on track with your study plan.
+          <p className="mt-1 text-xs leading-5 text-[#899690]">
+            Stay focused and keep your study plan moving.
           </p>
+
         </div>
 
-        <div className="rounded-lg bg-[#6FCF97]/20 px-2.5 py-1 text-xs font-semibold text-[#1F6F5F]">
-          {completedTasks}/{tasks.length}
+
+        {/* Completion indicator */}
+
+        <div className="relative flex h-14 w-14 shrink-0 items-center justify-center">
+
+          <svg
+            viewBox="0 0 40 40"
+            className="absolute inset-0 h-full w-full -rotate-90"
+          >
+            <circle
+              cx="20"
+              cy="20"
+              r="16"
+              fill="none"
+              stroke="#edf2ef"
+              strokeWidth="3"
+            />
+
+            <circle
+              cx="20"
+              cy="20"
+              r="16"
+              fill="none"
+              stroke="#2fa084"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeDasharray="100.53"
+              strokeDashoffset={
+                100.53 -
+                (100.53 * progress) /
+                  100
+              }
+              className="transition-all duration-700"
+            />
+          </svg>
+
+          <div className="relative text-center">
+            <p className="text-xs font-bold leading-none text-[#1f6f5f]">
+              {progress}%
+            </p>
+
+            <p className="mt-0.5 text-[7px] font-bold uppercase tracking-wide text-[#9aa7a2]">
+              Done
+            </p>
+          </div>
+
         </div>
+
       </div>
 
-      {/* ==================================================
-          PROGRESS
-          ================================================== */}
 
-      <div className="mt-5">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-xs font-medium text-gray-500">
-            Today's progress
+      {/* ================================================= */}
+      {/* Progress Summary */}
+      {/* ================================================= */}
+
+      <div className="relative mt-6 rounded-2xl border border-[#e2ece8] bg-[#f8fbfa] p-4">
+
+        <div className="flex items-center justify-between gap-3">
+
+          <div className="flex items-center gap-2.5">
+
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-[#2fa084] shadow-sm">
+              <ListChecks
+                size={16}
+                strokeWidth={2}
+              />
+            </div>
+
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#94a39d]">
+                Daily progress
+              </p>
+
+              <p className="mt-0.5 text-xs font-semibold text-[#53635d]">
+                {completedTasks} of {tasks.length} tasks completed
+              </p>
+            </div>
+
+          </div>
+
+
+          <span className="rounded-lg bg-[#e5f5ee] px-2 py-1 text-[9px] font-bold text-[#2fa084]">
+            {remainingTasks === 0 && tasks.length > 0
+              ? "Complete"
+              : `${remainingTasks} left`}
           </span>
 
-          <span className="text-xs font-semibold text-[#2FA084]">
-            {progress}%
-          </span>
         </div>
 
-        <div className="h-2 overflow-hidden rounded-full bg-[#EEEEEE]">
+
+        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#e8efec]">
+
           <div
-            className="h-full rounded-full bg-[#2FA084] transition-all duration-500"
+            className="h-full rounded-full bg-[#2fa084] transition-all duration-700"
             style={{
               width: `${progress}%`,
             }}
           />
+
         </div>
+
       </div>
 
-      {/* ==================================================
-          ERROR
-          ================================================== */}
+
+      {/* ================================================= */}
+      {/* Error */}
+      {/* ================================================= */}
 
       {error && (
-        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2">
-          <p className="text-xs text-red-600">
+        <div className="mt-4 flex items-center gap-2 rounded-xl border border-[#f2d4d4] bg-[#fff5f5] px-3 py-2.5">
+
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#d66a6a]" />
+
+          <p className="text-[11px] font-medium text-[#b65353]">
             {error}
           </p>
+
         </div>
       )}
 
-      {/* ==================================================
-          LOADING
-          ================================================== */}
+
+      {/* ================================================= */}
+      {/* Loading */}
+      {/* ================================================= */}
 
       {loading && (
-        <div className="mt-5 flex items-center justify-center rounded-xl bg-[#F8F9F8] py-10">
-          <div className="text-center">
+        <div className="mt-5 space-y-2">
+
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div
+              key={index}
+              className="flex items-center gap-3 rounded-xl border border-transparent px-2 py-3"
+            >
+
+              <div className="h-8 w-8 shrink-0 animate-pulse rounded-full bg-[#edf3f0]" />
+
+              <div className="min-w-0 flex-1">
+                <div className="h-3 w-2/3 animate-pulse rounded bg-[#e7eeeb]" />
+
+                <div className="mt-2 h-2.5 w-1/3 animate-pulse rounded bg-[#f0f4f2]" />
+              </div>
+
+            </div>
+          ))}
+
+          <div className="flex items-center justify-center gap-2 pt-2">
             <Loader2
-              size={24}
-              className="mx-auto animate-spin text-[#2FA084]"
+              size={14}
+              className="animate-spin text-[#2fa084]"
             />
 
-            <p className="mt-3 text-sm text-gray-500">
+            <span className="text-[10px] font-medium text-[#9aa7a2]">
               Loading today's tasks...
-            </p>
+            </span>
           </div>
+
         </div>
       )}
 
-      {/* ==================================================
-          EMPTY STATE
-          ================================================== */}
+
+      {/* ================================================= */}
+      {/* Empty State */}
+      {/* ================================================= */}
 
       {!loading && tasks.length === 0 && (
-        <div className="mt-5 rounded-xl bg-[#F8F9F8] px-5 py-8 text-center">
-          <CalendarDays
-            size={28}
-            className="mx-auto text-gray-300"
-          />
+        <div className="mt-5 rounded-2xl border border-dashed border-[#dce7e2] bg-[#f8fbfa] px-5 py-9 text-center">
 
-          <p className="mt-3 text-sm font-medium text-gray-500">
+          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-white text-[#aab8b2] shadow-sm">
+            <CalendarDays
+              size={21}
+              strokeWidth={1.8}
+            />
+          </div>
+
+          <p className="mt-3 text-xs font-semibold text-[#697873]">
             No tasks planned for today.
           </p>
 
-          <p className="mt-1 text-xs leading-5 text-gray-400">
-            Add a study task to keep your day organized.
+          <p className="mx-auto mt-1 max-w-[240px] text-[10px] leading-5 text-[#9aa7a2]">
+            Add a study task to keep your day structured and focused.
           </p>
+
         </div>
       )}
 
-      {/* ==================================================
-          TASK LIST
-          ================================================== */}
+
+      {/* ================================================= */}
+      {/* Task List */}
+      {/* ================================================= */}
 
       {!loading && tasks.length > 0 && (
-        <div className="mt-5 space-y-1">
+        <div className="relative mt-5 space-y-1">
+
           {tasks.slice(0, 4).map((task) => (
             <div
               key={task.id}
-              className={`flex items-center gap-3 rounded-xl p-3 transition ${
+              className={`group flex items-center gap-3 rounded-xl border px-2.5 py-3 transition-all duration-200 ${
                 task.completed
-                  ? "bg-[#6FCF97]/10"
-                  : "hover:bg-[#EEEEEE]"
+                  ? "border-[#dceee6] bg-[#f3faf7]"
+                  : "border-transparent hover:border-[#e2ece8] hover:bg-[#f8fbfa]"
               }`}
             >
+
+              {/* Completion button */}
+
               <button
+                type="button"
                 onClick={() =>
-                  handleToggleComplete(
-                    task
-                  )
+                  handleToggleComplete(task)
                 }
                 title={
                   task.completed
                     ? "Mark as incomplete"
                     : "Mark as complete"
                 }
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition ${
+                aria-label={
                   task.completed
-                    ? "bg-[#2FA084] text-white"
-                    : "border-2 border-gray-200 text-gray-300 hover:border-[#2FA084] hover:text-[#2FA084]"
+                    ? `Mark ${task.title} as incomplete`
+                    : `Mark ${task.title} as complete`
+                }
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#6fcf97]/20 ${
+                  task.completed
+                    ? "bg-[#2fa084] text-white shadow-sm hover:bg-[#1f6f5f]"
+                    : "border-2 border-[#d9e3df] bg-white text-transparent hover:border-[#2fa084] hover:text-[#2fa084]"
                 }`}
               >
                 {task.completed ? (
-                  <Check size={16} />
+                  <Check
+                    size={15}
+                    strokeWidth={2.5}
+                  />
                 ) : (
-                  <Circle size={14} />
+                  <Circle
+                    size={13}
+                    strokeWidth={2}
+                  />
                 )}
               </button>
 
+
+              {/* Task content */}
+
               <div className="min-w-0 flex-1">
+
                 <p
-                  className={`truncate text-sm font-medium ${
+                  className={`truncate text-xs font-semibold transition-colors duration-200 sm:text-[13px] ${
                     task.completed
-                      ? "text-gray-400 line-through"
-                      : "text-gray-700"
+                      ? "text-[#9aa7a2] line-through"
+                      : "text-[#53635d] group-hover:text-[#1f6f5f]"
                   }`}
                 >
                   {task.title}
                 </p>
 
-                <div className="mt-1 flex items-center gap-2 text-xs text-gray-400">
-                  {task.task_time && (
-                    <>
-                      <span>
+
+                {(task.task_time ||
+                  task.duration) && (
+                  <div className="mt-1.5 flex items-center gap-2 text-[10px] font-medium text-[#9aa7a2]">
+
+                    {task.task_time && (
+                      <span className="flex items-center gap-1">
+                        <Clock3
+                          size={10}
+                          strokeWidth={2}
+                        />
+
                         {task.task_time}
                       </span>
+                    )}
 
-                      {task.duration && (
-                        <span>•</span>
+                    {task.task_time &&
+                      task.duration && (
+                        <span className="text-[#c7d0cc]">
+                          •
+                        </span>
                       )}
-                    </>
-                  )}
 
-                  {task.duration && (
-                    <span className="flex items-center gap-1">
-                      <Clock3 size={12} />
-                      {task.duration} min
-                    </span>
-                  )}
-                </div>
+                    {task.duration && (
+                      <span>
+                        {task.duration} min
+                      </span>
+                    )}
+
+                  </div>
+                )}
+
               </div>
+
+
+              {/* Completed badge */}
+
+              {task.completed && (
+                <span className="hidden shrink-0 rounded-md bg-[#e5f5ee] px-1.5 py-1 text-[9px] font-bold text-[#2fa084] sm:block">
+                  Done
+                </span>
+              )}
+
             </div>
           ))}
+
         </div>
       )}
 
-      {/* ==================================================
-          MORE TASKS INDICATOR
-          ================================================== */}
+
+      {/* ================================================= */}
+      {/* More Tasks */}
+      {/* ================================================= */}
 
       {!loading && tasks.length > 4 && (
-        <p className="mt-3 text-center text-xs text-gray-400">
-          + {tasks.length - 4} more task
-          {tasks.length - 4 === 1
-            ? ""
-            : "s"}{" "}
-          in your planner
-        </p>
+        <div className="mt-3 rounded-lg bg-[#f8fbfa] px-3 py-2 text-center">
+
+          <p className="text-[10px] font-medium text-[#899690]">
+            + {tasks.length - 4} more task
+            {tasks.length - 4 === 1
+              ? ""
+              : "s"}{" "}
+            in your planner
+          </p>
+
+        </div>
       )}
 
-      {/* ==================================================
-          OPEN PLANNER
-          ================================================== */}
+
+      {/* ================================================= */}
+      {/* Open Planner */}
+      {/* ================================================= */}
 
       <button
+        type="button"
         onClick={() => navigate("/planner")}
-        className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#2FA084] py-2.5 text-sm font-semibold text-white transition hover:bg-[#1F6F5F]"
+        className="group relative mt-5 flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-[#1f6f5f] py-3 text-xs font-bold text-white shadow-[0_8px_20px_rgba(31,111,95,0.15)] transition-all duration-200 hover:bg-[#19594d] hover:shadow-[0_10px_24px_rgba(31,111,95,0.21)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#6fcf97]/20"
       >
-        Open Study Planner
-        <ArrowRight size={16} />
+        <span>
+          Open Study Planner
+        </span>
+
+        <ArrowRight
+          size={15}
+          strokeWidth={2.2}
+          className="transition-transform duration-200 group-hover:translate-x-0.5"
+        />
       </button>
+
     </div>
   );
 }
+
 
 export default TodaysTasks;
