@@ -1,4 +1,7 @@
 from typing import Literal
+import shutil
+import subprocess
+import tempfile
 
 from fastapi import (
     APIRouter,
@@ -97,6 +100,13 @@ UPLOAD_DIR.mkdir(
     exist_ok=True,
 )
 
+RENDERED_DIR = UPLOAD_DIR / "rendered"
+
+RENDERED_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
+
 
 # --------------------------------------------------
 # Supported AI Document Formats
@@ -108,6 +118,233 @@ AI_SUPPORTED_EXTENSIONS = {
     ".pptx",
     ".txt",
 }
+
+
+# --------------------------------------------------
+# Supported Browser-Rendered Formats
+# --------------------------------------------------
+
+BROWSER_RENDERABLE_EXTENSIONS = {
+    ".docx",
+    ".pptx",
+}
+
+
+# --------------------------------------------------
+# Helper - Find LibreOffice
+# --------------------------------------------------
+
+def get_libreoffice_executable() -> str:
+    """
+    Find the LibreOffice executable.
+
+    Windows:
+        Prefer the standard installation path.
+
+    Other systems:
+        Try the executable available on PATH.
+    """
+
+    windows_paths = [
+        Path(
+            r"C:\Program Files\LibreOffice\program\soffice.exe"
+        ),
+        Path(
+            r"C:\Program Files (x86)\LibreOffice\program\soffice.exe"
+        ),
+    ]
+
+    for executable in windows_paths:
+
+        if executable.exists():
+            return str(executable)
+
+    executable_from_path = shutil.which("soffice")
+
+    if executable_from_path:
+        return executable_from_path
+
+    executable_from_path = shutil.which("libreoffice")
+
+    if executable_from_path:
+        return executable_from_path
+
+    raise RuntimeError(
+        "LibreOffice was not found. "
+        "Please install LibreOffice and make sure soffice.exe "
+        "is available."
+    )
+
+
+# --------------------------------------------------
+# Helper - Convert Office Document to PDF
+# --------------------------------------------------
+
+def convert_office_document_to_pdf(
+    source_path: Path,
+    output_path: Path,
+) -> Path:
+    """
+    Convert a DOCX/PPTX file into a PDF using LibreOffice.
+
+    The generated PDF is stored in the rendered directory so
+    the frontend can display it using the same PDF viewer used
+    for native PDF materials.
+    """
+
+    suffix = source_path.suffix.lower()
+
+    if suffix not in BROWSER_RENDERABLE_EXTENSIONS:
+
+        raise ValueError(
+            "Only DOCX and PPTX files can be rendered "
+            "through LibreOffice."
+        )
+
+    libreoffice = get_libreoffice_executable()
+
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    # --------------------------------------------------
+    # Reuse an existing rendered PDF if it is newer
+    # than the original Office document.
+    # --------------------------------------------------
+
+    if output_path.exists():
+
+        try:
+
+            if output_path.stat().st_mtime >= source_path.stat().st_mtime:
+
+                return output_path
+
+        except OSError:
+            pass
+
+    # --------------------------------------------------
+    # Temporary conversion directory
+    # --------------------------------------------------
+
+    with tempfile.TemporaryDirectory(
+        prefix="edumind_render_"
+    ) as temp_directory:
+
+        temp_dir = Path(
+            temp_directory
+        )
+
+        converted_pdf = (
+            temp_dir
+            / f"{source_path.stem}.pdf"
+        )
+
+        # --------------------------------------------------
+        # Use an isolated LibreOffice user profile.
+        #
+        # This prevents an already-open LibreOffice GUI
+        # instance from interfering with headless conversion.
+        # --------------------------------------------------
+
+        profile_dir = (
+            temp_dir
+            / "libreoffice_profile"
+        )
+
+        profile_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        profile_uri = profile_dir.as_uri()
+
+        command = [
+            libreoffice,
+            "--headless",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            str(temp_dir),
+            f"-env:UserInstallation={profile_uri}",
+            str(source_path),
+        ]
+
+        try:
+
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+
+        except subprocess.TimeoutExpired as error:
+
+            raise RuntimeError(
+                "LibreOffice timed out while converting "
+                "the document to PDF."
+            ) from error
+
+        except OSError as error:
+
+            raise RuntimeError(
+                f"Unable to start LibreOffice: {error}"
+            ) from error
+
+        # --------------------------------------------------
+        # Check LibreOffice result
+        # --------------------------------------------------
+
+        if result.returncode != 0:
+
+            error_output = (
+                result.stderr.strip()
+                or result.stdout.strip()
+                or "Unknown LibreOffice conversion error."
+            )
+
+            raise RuntimeError(
+                f"LibreOffice failed to convert the document: "
+                f"{error_output}"
+            )
+
+        # --------------------------------------------------
+        # LibreOffice should have created the PDF.
+        # --------------------------------------------------
+
+        if not converted_pdf.exists():
+
+            # Some LibreOffice versions can vary slightly in
+            # output naming, so look for the first generated PDF.
+            generated_pdfs = list(
+                temp_dir.glob("*.pdf")
+            )
+
+            if generated_pdfs:
+
+                converted_pdf = generated_pdfs[0]
+
+            else:
+
+                raise RuntimeError(
+                    "LibreOffice completed the conversion "
+                    "but no PDF file was produced."
+                )
+
+        # --------------------------------------------------
+        # Copy the converted PDF into the persistent
+        # rendered-material directory.
+        # --------------------------------------------------
+
+        shutil.copy2(
+            converted_pdf,
+            output_path,
+        )
+
+    return output_path
 
 
 # --------------------------------------------------
@@ -172,6 +409,7 @@ def get_user_material(
     )
 
     if not material:
+
         raise HTTPException(
             status_code=404,
             detail="Material not found.",
@@ -194,7 +432,7 @@ def get_materials(
         .filter(
             Material.user_id == current_user.id
         )
-        .order_by(Material.id.desc())
+        .order_by(Material.created_at.desc())
         .all()
     )
 
@@ -419,6 +657,201 @@ def get_material_file(
 
 
 # --------------------------------------------------
+# GET - RENDER OFFICE MATERIAL AS PDF
+# --------------------------------------------------
+
+@router.get("/{material_id}/rendered-file")
+def get_rendered_material_file(
+    material_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return a browser-friendly PDF representation of a DOCX/PPTX.
+
+    DOCX and PPTX files are converted through LibreOffice so
+    the frontend can use the same PDF viewer that already works
+    for native PDF materials.
+    """
+
+    material = get_user_material(
+        material_id=material_id,
+        current_user=current_user,
+        db=db,
+    )
+
+    if not material.file_path:
+
+        raise HTTPException(
+            status_code=404,
+            detail="File is not available for this material.",
+        )
+
+    source_path = (
+        BASE_DIR
+        / material.file_path
+    )
+
+    if not source_path.exists():
+
+        raise HTTPException(
+            status_code=404,
+            detail="Physical file not found.",
+        )
+
+    suffix = source_path.suffix.lower()
+
+    # --------------------------------------------------
+    # Native PDF files do not need conversion.
+    # --------------------------------------------------
+
+    if suffix == ".pdf":
+
+        return FileResponse(
+            path=source_path,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "inline",
+            },
+        )
+
+    # --------------------------------------------------
+    # Only DOCX and PPTX are rendered through LibreOffice.
+    # --------------------------------------------------
+
+    if suffix not in BROWSER_RENDERABLE_EXTENSIONS:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Visual rendering is currently supported "
+                "for PDF, DOCX, and PPTX files."
+            ),
+        )
+
+    rendered_path = (
+        RENDERED_DIR
+        / f"material_{material_id}.pdf"
+    )
+
+    try:
+
+        convert_office_document_to_pdf(
+            source_path=source_path,
+            output_path=rendered_path,
+        )
+
+    except Exception as error:
+
+        print(
+            f"Material PDF rendering error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Unable to render this Office document "
+                "as a PDF."
+            ),
+        )
+
+    return FileResponse(
+        path=rendered_path,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": "inline",
+        },
+    )
+
+
+# --------------------------------------------------
+# GET - EXTRACTED MATERIAL CONTENT
+# --------------------------------------------------
+
+@router.get("/{material_id}/content")
+def get_material_content(
+    material_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return the readable text extracted from a study material.
+
+    This uses the same extraction pipeline used by the AI
+    features, including OCR fallback for image-based PPTX files.
+    """
+
+    material = get_user_material(
+        material_id=material_id,
+        current_user=current_user,
+        db=db,
+    )
+
+    if not material.file_path:
+
+        raise HTTPException(
+            status_code=404,
+            detail="File is not available for this material.",
+        )
+
+    file_path = (
+        BASE_DIR
+        / material.file_path
+    )
+
+    if not file_path.exists():
+
+        raise HTTPException(
+            status_code=404,
+            detail="Physical file not found.",
+        )
+
+    validate_ai_document(
+        file_path
+    )
+
+    try:
+
+        extracted_text = extract_document_text(
+            str(file_path)
+        )
+
+        if not extracted_text.strip():
+
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "No readable content could be extracted "
+                    "from this material."
+                ),
+            )
+
+        return {
+            "material_id": material_id,
+            "title": material.title,
+            "type": material.type,
+            "content": extracted_text,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+
+        print(
+            f"Material content extraction error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Failed to extract readable content "
+                "from this material."
+            ),
+        )
+
+
+# --------------------------------------------------
 # DELETE MATERIAL
 # --------------------------------------------------
 
@@ -447,7 +880,30 @@ def delete_material(
         )
 
         if file_path.exists():
+
             file_path.unlink()
+
+    # --------------------------------------------------
+    # Delete rendered PDF cache
+    # --------------------------------------------------
+
+    rendered_file = (
+        RENDERED_DIR
+        / f"material_{material_id}.pdf"
+    )
+
+    if rendered_file.exists():
+
+        try:
+
+            rendered_file.unlink()
+
+        except OSError as error:
+
+            print(
+                "Rendered PDF deletion error:",
+                error,
+            )
 
     # --------------------------------------------------
     # Delete vector store
@@ -1023,7 +1479,8 @@ def generate_material_flashcards(
     except Exception as error:
 
         print(
-            f"Flashcard generation error: {error}"
+            "Flashcard generation error:",
+            error,
         )
 
         raise HTTPException(

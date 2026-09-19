@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   BookOpen,
   FileText,
@@ -30,21 +29,26 @@ const tabs = [
   },
 ];
 
-function LibraryTabs() {
-  const [activeTab, setActiveTab] = useState("All Materials");
-
+function LibraryTabs({
+  activeTab = "All Materials",
+  onTabChange,
+}) {
   return (
     <div className="mt-5 overflow-x-auto pb-1">
       <div className="inline-flex min-w-max rounded-2xl border border-[#dfe9e5] bg-white p-1.5 shadow-[0_4px_18px_rgba(23,33,30,0.045)]">
         {tabs.map((tab) => {
-          const active = activeTab === tab.label;
+          const active =
+            activeTab === tab.label;
+
           const Icon = tab.icon;
 
           return (
             <button
               key={tab.label}
               type="button"
-              onClick={() => setActiveTab(tab.label)}
+              onClick={() =>
+                onTabChange(tab.label)
+              }
               aria-pressed={active}
               className={`
                 group relative flex items-center gap-2
@@ -100,7 +104,9 @@ function LibraryTabs() {
               >
                 <Icon
                   size={15}
-                  strokeWidth={active ? 2.2 : 2}
+                  strokeWidth={
+                    active ? 2.2 : 2
+                  }
                   className="transition-transform duration-200 group-hover:scale-[1.04]"
                 />
               </span>

@@ -44,6 +44,72 @@ const iconMap = {
   },
 };
 
+function formatRelativeTime(createdAt, fallbackTime) {
+  if (!createdAt) {
+    return fallbackTime || "Recently uploaded";
+  }
+
+  const createdDate = new Date(createdAt);
+
+  if (Number.isNaN(createdDate.getTime())) {
+    return fallbackTime || "Recently uploaded";
+  }
+
+  const now = new Date();
+  const differenceInSeconds = Math.max(
+    0,
+    Math.floor(
+      (now.getTime() - createdDate.getTime()) / 1000
+    )
+  );
+
+  if (differenceInSeconds < 60) {
+    return "Just now";
+  }
+
+  const minutes = Math.floor(
+    differenceInSeconds / 60
+  );
+
+  if (minutes < 60) {
+    return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  }
+
+  const hours = Math.floor(
+    minutes / 60
+  );
+
+  if (hours < 24) {
+    return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  }
+
+  const days = Math.floor(
+    hours / 24
+  );
+
+  if (days === 1) {
+    return "Yesterday";
+  }
+
+  if (days < 30) {
+    return `${days} days ago`;
+  }
+
+  const months = Math.floor(
+    days / 30
+  );
+
+  if (months < 12) {
+    return `${months} month${months === 1 ? "" : "s"} ago`;
+  }
+
+  const years = Math.floor(
+    days / 365
+  );
+
+  return `${years} year${years === 1 ? "" : "s"} ago`;
+}
+
 function MaterialCard({
   material,
   onDelete,
@@ -60,6 +126,11 @@ function MaterialCard({
     iconMap.DOC;
 
   const Icon = config.icon;
+
+  const displayTime = formatRelativeTime(
+    material.created_at,
+    material.time
+  );
 
   /*
    * Open Material Details page
@@ -489,7 +560,7 @@ function MaterialCard({
             />
 
             <span className="truncate">
-              {material.time}
+              {displayTime}
             </span>
           </div>
 

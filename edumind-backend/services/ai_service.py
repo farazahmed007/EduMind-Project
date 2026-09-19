@@ -1,11 +1,22 @@
 import json
 import re
+import html
+import shutil
+import subprocess
+import tempfile
+import zipfile
+import posixpath
+import xml.etree.ElementTree as ET
+from zipfile import BadZipFile, ZipFile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from difflib import SequenceMatcher
 
 import pymupdf
+import pytesseract
+from PIL import Image, ImageOps
 from docx import Document
 from pptx import Presentation
 
@@ -22,58 +33,114 @@ OLLAMA_MODEL = "llama3.2:3b"
 # DOCUMENT TEXT EXTRACTION
 # ==================================================
 
-def extract_pdf_text(
-    file_path: str,
-) -> str:
-    """
-    Extract all readable text from a PDF file.
+W_NAMESPACE = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+A_NAMESPACE = "http://schemas.openxmlformats.org/drawingml/2006/main"
+W = f"{{{W_NAMESPACE}}}"
+A = f"{{{A_NAMESPACE}}}"
 
-    This function is kept as a dedicated PDF helper for
-    backwards compatibility with existing callers.
+
+def _clean_extracted_text(text: str) -> str:
+    """
+    Clean text extracted from Office XML/OCR while preserving useful
+    paragraph and slide boundaries.
     """
 
+    text = html.unescape(str(text or ""))
+    text = text.replace("\u00a0", " ")
+    lines = []
+
+    for line in text.splitlines():
+        line = re.sub(r"[ \t]+", " ", line).strip()
+
+        if not line:
+            if lines and lines[-1] != "":
+                lines.append("")
+            continue
+
+        lines.append(line)
+
+    return "\n".join(lines).strip()
+
+
+def _extract_docx_xml_text(file_path: str) -> str:
+    """
+    Fallback DOCX extractor using direct OOXML text-node extraction.
+
+    This intentionally avoids relying on python-docx relationships because
+    some valid DOCX files have unusual package relationships.
+    """
     path = Path(file_path)
 
-    if not path.exists():
-        raise FileNotFoundError(
-            f"PDF file not found: {file_path}"
+    try:
+        with zipfile.ZipFile(path, "r") as archive:
+            xml_bytes = archive.read("word/document.xml")
+    except KeyError as error:
+        raise ValueError(
+            "This DOCX file does not contain word/document.xml."
+        ) from error
+    except zipfile.BadZipFile as error:
+        raise ValueError(
+            "The DOCX file is not a valid Office ZIP package."
+        ) from error
+
+    raw_xml = xml_bytes.decode("utf-8", errors="replace")
+
+    # The diagnostic for this project confirmed that the document contains
+    # hundreds of readable <w:t> nodes. Extract those nodes directly.
+    text_pattern = re.compile(
+        r"<(?:(?:[A-Za-z_][\w.-]*):)?t(?:\s[^>]*)?>(.*?)</(?:(?:[A-Za-z_][\w.-]*):)?t>",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    text_nodes = text_pattern.findall(raw_xml)
+
+    if not text_nodes:
+        # Secondary namespace-independent XML fallback.
+        try:
+            root = ET.fromstring(xml_bytes)
+        except ET.ParseError as error:
+            raise ValueError(
+                "The DOCX document.xml file could not be parsed."
+            ) from error
+
+        text_nodes = []
+        for element in root.iter():
+            tag = element.tag
+            if not isinstance(tag, str):
+                continue
+
+            local_name = tag.rsplit("}", 1)[-1].lower()
+
+            if local_name == "t":
+                value = "".join(element.itertext())
+                if value:
+                    text_nodes.append(value)
+
+    if not text_nodes:
+        raise ValueError(
+            "No readable text could be extracted from this DOCX file."
         )
 
-    text_parts = []
-
-    document = pymupdf.open(path)
-
-    try:
-
-        for page in document:
-
-            page_text = page.get_text()
-
-            if page_text:
-                text_parts.append(page_text)
-
-    finally:
-
-        document.close()
-
-    text = "\n".join(
-        text_parts
-    ).strip()
+    # Preserve all extracted text while cleaning XML entities and whitespace.
+    text = html.unescape("".join(text_nodes))
+    text = text.replace("\r", "")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
 
     if not text:
-
         raise ValueError(
-            "No readable text could be extracted from this PDF."
+            "No readable text could be extracted from this DOCX file."
         )
 
-    return text
+    return _clean_extracted_text(text)
 
-
-def extract_docx_text(
-    file_path: str,
-) -> str:
+def extract_docx_text(file_path: str) -> str:
     """
-    Extract readable paragraph and table text from a DOCX file.
+    Extract DOCX text using python-docx with a direct OOXML fallback.
+
+    Some valid DOCX files can fail inside python-docx because their package
+    relationships are unusual. In that case, word/document.xml still contains
+    the document text, so the XML extractor is used as a fallback.
     """
 
     path = Path(file_path)
@@ -83,100 +150,398 @@ def extract_docx_text(
             f"DOCX file not found: {file_path}"
         )
 
-    document = Document(path)
-    text_parts = []
+    try:
+        document = Document(path)
+        text_parts = []
 
-    for paragraph in document.paragraphs:
+        for paragraph in document.paragraphs:
+            paragraph_text = paragraph.text.strip()
 
-        paragraph_text = paragraph.text.strip()
+            if paragraph_text:
+                text_parts.append(paragraph_text)
 
-        if paragraph_text:
-            text_parts.append(paragraph_text)
+        for table in document.tables:
+            for row in table.rows:
+                cells = [
+                    cell.text.strip()
+                    for cell in row.cells
+                    if cell.text.strip()
+                ]
 
-    for table in document.tables:
+                if cells:
+                    text_parts.append(
+                        " | ".join(cells)
+                    )
 
-        for row in table.rows:
+        text = _clean_extracted_text(
+            "\n".join(text_parts)
+        )
 
-            cells = [
-                cell.text.strip()
-                for cell in row.cells
-                if cell.text.strip()
-            ]
-
-            if cells:
-                text_parts.append(
-                    " | ".join(cells)
-                )
-
-    text = "\n".join(
-        text_parts
-    ).strip()
-
-    if not text:
+        if text:
+            return text
 
         raise ValueError(
             "No readable text could be extracted from this DOCX file."
         )
 
-    return text
-
-
-def extract_pptx_text(
-    file_path: str,
-) -> str:
-    """
-    Extract readable text from all slides in a PPT/PPTX file.
-    """
-
-    path = Path(file_path)
-
-    if not path.exists():
-        raise FileNotFoundError(
-            f"PowerPoint file not found: {file_path}"
+    except Exception as error:
+        print(
+            f"python-docx extraction failed for {path}: {error}. "
+            "Trying raw DOCX XML extraction."
         )
 
-    presentation = Presentation(path)
-    text_parts = []
+        return _extract_docx_xml_text(
+            str(path)
+        )
 
-    for slide_number, slide in enumerate(
-        presentation.slides,
-        start=1,
-    ):
 
-        slide_parts = []
+def _extract_pptx_xml_text(file_path: str) -> str:
+    """Extract readable text directly from every PowerPoint slide XML file."""
+    path = Path(file_path)
+    slide_texts = []
 
-        for shape in slide.shapes:
+    try:
+        with zipfile.ZipFile(path, "r") as archive:
+            slide_names = []
+            for name in archive.namelist():
+                normalized_name = name.replace("\\", "/").strip()
+                lower_name = normalized_name.lower()
+                if lower_name.startswith("ppt/slides/slide") and lower_name.endswith(".xml"):
+                    slide_names.append(name)
 
-            if not hasattr(shape, "text"):
-                continue
+            def slide_number(name: str) -> int:
+                normalized = name.replace("\\", "/")
+                match = re.search(r"slide(\d+)\.xml$", normalized, flags=re.IGNORECASE)
+                return int(match.group(1)) if match else 10**9
 
-            shape_text = str(
-                shape.text
-            ).strip()
+            slide_names.sort(key=slide_number)
 
-            if shape_text:
-                slide_parts.append(
-                    shape_text
+            if not slide_names:
+                raise ValueError(
+                    "The PowerPoint package does not contain any slide XML files."
                 )
 
-        if slide_parts:
+            ignored = {
+                "click to edit master title style",
+                "click to edit master subtitle style",
+                "click to edit master text styles",
+                "second level",
+                "third level",
+                "fourth level",
+                "fifth level",
+                "8/1/2011",
+                "‹#›",
+            }
 
-            text_parts.append(
-                f"Slide {slide_number}\n"
-                + "\n".join(slide_parts)
+            text_pattern = re.compile(
+                r"<(?:(?:[A-Za-z_][\w.-]*):)?t(?:\s[^>]*)?>(.*?)</(?:(?:[A-Za-z_][\w.-]*):)?t>",
+                flags=re.IGNORECASE | re.DOTALL,
             )
 
-    text = "\n\n".join(
-        text_parts
-    ).strip()
+            for index, slide_name in enumerate(slide_names, start=1):
+                raw_bytes = archive.read(slide_name)
+                raw_xml = raw_bytes.decode("utf-8", errors="replace")
+                raw_parts = text_pattern.findall(raw_xml)
+
+                if not raw_parts:
+                    try:
+                        root = ET.fromstring(raw_bytes)
+                        raw_parts = []
+                        for element in root.iter():
+                            tag = element.tag
+                            if not isinstance(tag, str):
+                                continue
+                            local_name = tag.rsplit("}", 1)[-1].lower()
+                            if local_name == "t":
+                                value = "".join(element.itertext())
+                                if value.strip():
+                                    raw_parts.append(value)
+                    except ET.ParseError:
+                        raw_parts = []
+
+                cleaned_parts = []
+                for part in raw_parts:
+                    value = html.unescape(str(part))
+                    value = re.sub(r"<[^>]+>", "", value)
+                    value = re.sub(r"\s+", " ", value).strip()
+                    if value and value.lower() not in ignored:
+                        cleaned_parts.append(value)
+
+                if cleaned_parts:
+                    slide_texts.append(
+                        f"Slide {index}\n" + "\n".join(cleaned_parts)
+                    )
+
+    except BadZipFile as error:
+        raise ValueError(
+            "The PowerPoint file is not a valid Office ZIP package."
+        ) from error
+
+    text = "\n\n".join(slide_texts).strip()
 
     if not text:
-
         raise ValueError(
             "No readable text could be extracted from this PowerPoint file."
         )
 
     return text
+
+
+def _configure_tesseract() -> None:
+    """Configure the local Tesseract executable when it is installed on Windows."""
+
+    configured = str(getattr(pytesseract.pytesseract, "tesseract_cmd", "") or "").strip()
+    if configured and Path(configured).exists():
+        return
+
+    discovered = shutil.which("tesseract")
+    if discovered:
+        pytesseract.pytesseract.tesseract_cmd = discovered
+        return
+
+    windows_candidates = [
+        Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+        Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
+    ]
+
+    for candidate in windows_candidates:
+        if candidate.exists():
+            pytesseract.pytesseract.tesseract_cmd = str(candidate)
+            return
+
+    raise RuntimeError(
+        "Tesseract OCR is required to read image-only PowerPoint slides, "
+        "but the Tesseract executable could not be found."
+    )
+
+
+def _ocr_pptx_image(image_bytes: bytes) -> str:
+    """Run OCR on one embedded PowerPoint image and return cleaned text."""
+
+    with Image.open(__import__("io").BytesIO(image_bytes)) as image:
+        image = image.convert("RGB")
+
+        # Upscale smaller slide images so text has enough pixels for OCR.
+        if image.width < 1800:
+            scale = 1800 / max(image.width, 1)
+            image = image.resize(
+                (int(image.width * scale), int(image.height * scale)),
+                Image.Resampling.LANCZOS,
+            )
+
+        # A high-contrast grayscale copy generally works better for slide text
+        # while keeping the original available if the result is poor.
+        grayscale = ImageOps.autocontrast(ImageOps.grayscale(image))
+
+        results = []
+        for candidate in (image, grayscale):
+            try:
+                extracted = pytesseract.image_to_string(
+                    candidate,
+                    lang="eng",
+                    config="--psm 11",
+                )
+            except Exception:
+                continue
+
+            cleaned = _clean_extracted_text(extracted)
+            if cleaned:
+                results.append(cleaned)
+
+        if not results:
+            return ""
+
+        # Prefer the OCR result containing more useful textual content.
+        return max(
+            results,
+            key=lambda value: sum(character.isalnum() for character in value),
+        )
+
+
+def _extract_pptx_ocr_text(file_path: str) -> str:
+    """
+    Extract text from image-only PowerPoint slides using OCR.
+
+    PowerPoint can contain slides where all visible content is a single image.
+    Such slides have no <a:t> text nodes, so neither python-pptx nor OOXML text
+    extraction can recover the visible words. This fallback follows each slide's
+    image relationships and runs Tesseract OCR on the referenced images.
+    """
+
+    _configure_tesseract()
+    path = Path(file_path)
+    slide_texts = []
+
+    relationship_namespace = "http://schemas.openxmlformats.org/package/2006/relationships"
+    r_namespace = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+    try:
+        with zipfile.ZipFile(path, "r") as archive:
+            slide_names = []
+            for name in archive.namelist():
+                normalized = name.replace("\\", "/").strip()
+                lower_name = normalized.lower()
+                if lower_name.startswith("ppt/slides/slide") and lower_name.endswith(".xml"):
+                    slide_names.append(name)
+
+            def slide_number(name: str) -> int:
+                normalized = name.replace("\\", "/")
+                match = re.search(r"slide(\d+)\.xml$", normalized, flags=re.IGNORECASE)
+                return int(match.group(1)) if match else 10**9
+
+            slide_names.sort(key=slide_number)
+
+            if not slide_names:
+                raise ValueError(
+                    "The PowerPoint package does not contain any slide XML files."
+                )
+
+            for slide_index, slide_name in enumerate(slide_names, start=1):
+                slide_xml = archive.read(slide_name)
+
+                try:
+                    slide_root = ET.fromstring(slide_xml)
+                except ET.ParseError:
+                    continue
+
+                rels_name = posixpath.normpath(
+                    posixpath.join(
+                        posixpath.dirname(slide_name.replace("\\", "/")),
+                        "_rels",
+                        posixpath.basename(slide_name) + ".rels",
+                    )
+                )
+
+                relationship_targets = {}
+                if rels_name in archive.namelist():
+                    rels_root = ET.fromstring(archive.read(rels_name))
+                    for relationship in rels_root.findall(
+                        f"{{{relationship_namespace}}}Relationship"
+                    ):
+                        relationship_id = relationship.attrib.get("Id")
+                        target = relationship.attrib.get("Target")
+                        relationship_type = relationship.attrib.get("Type", "")
+
+                        if (
+                            relationship_id
+                            and target
+                            and relationship_type.endswith("/image")
+                        ):
+                            relationship_targets[relationship_id] = target
+
+                image_targets = []
+                for element in slide_root.iter():
+                    tag = element.tag
+                    if not isinstance(tag, str):
+                        continue
+                    local_name = tag.rsplit("}", 1)[-1].lower()
+                    if local_name != "blip":
+                        continue
+
+                    relationship_id = element.attrib.get(
+                        f"{{{r_namespace}}}embed"
+                    )
+                    if not relationship_id:
+                        relationship_id = element.attrib.get("r:embed")
+
+                    target = relationship_targets.get(relationship_id)
+                    if target:
+                        image_path = posixpath.normpath(
+                            posixpath.join(
+                                posixpath.dirname(slide_name.replace("\\", "/")),
+                                target,
+                            )
+                        )
+                        if image_path in archive.namelist():
+                            image_targets.append(image_path)
+
+                seen_images = set()
+                slide_parts = []
+
+                for image_path in image_targets:
+                    if image_path in seen_images:
+                        continue
+                    seen_images.add(image_path)
+
+                    try:
+                        image_text = _ocr_pptx_image(archive.read(image_path))
+                    except Exception as error:
+                        print(
+                            f"OCR failed for {image_path} on slide {slide_index}: {error}"
+                        )
+                        continue
+
+                    if image_text:
+                        slide_parts.append(image_text)
+
+                if slide_parts:
+                    slide_texts.append(
+                        f"Slide {slide_index}\n" + "\n\n".join(slide_parts)
+                    )
+
+    except BadZipFile as error:
+        raise ValueError(
+            "The PowerPoint file is not a valid Office ZIP package."
+        ) from error
+
+    text = _clean_extracted_text("\n\n".join(slide_texts))
+
+    if not text:
+        raise ValueError(
+            "No readable text could be extracted from the PowerPoint slides, "
+            "including OCR of embedded slide images."
+        )
+
+    return text
+
+
+def extract_pptx_text(file_path: str) -> str:
+    """Extract PPTX text using python-pptx with an OOXML fallback."""
+    path = Path(file_path)
+
+    if not path.exists():
+        raise FileNotFoundError(f"PowerPoint file not found: {file_path}")
+
+    try:
+        presentation = Presentation(path)
+        text_parts = []
+
+        for slide_number, slide in enumerate(presentation.slides, start=1):
+            slide_parts = []
+
+            for shape in slide.shapes:
+                if not hasattr(shape, "text"):
+                    continue
+                shape_text = str(shape.text).strip()
+                if shape_text:
+                    slide_parts.append(shape_text)
+
+            if slide_parts:
+                text_parts.append(
+                    f"Slide {slide_number}\n" + "\n".join(slide_parts)
+                )
+
+        text = "\n\n".join(text_parts).strip()
+
+        if text:
+            return text
+
+        raise ValueError("No readable text could be extracted from this PowerPoint file.")
+
+    except Exception as error:
+        print(
+            f"python-pptx extraction failed for {path}: {error}. "
+            "Trying raw PowerPoint XML extraction."
+        )
+
+        try:
+            return _extract_pptx_xml_text(str(path))
+        except ValueError as xml_error:
+            print(
+                f"PowerPoint XML extraction found no readable text: {xml_error}. "
+                "Trying OCR on embedded slide images."
+            )
+            return _extract_pptx_ocr_text(str(path))
 
 
 def extract_txt_text(
@@ -203,21 +568,15 @@ def extract_txt_text(
     text = None
 
     for encoding in encodings:
-
         try:
-
             text = path.read_text(
                 encoding=encoding
             )
-
             break
-
         except UnicodeDecodeError:
-
             continue
 
     if text is None:
-
         raise ValueError(
             "Could not decode this text file."
         )
@@ -225,7 +584,6 @@ def extract_txt_text(
     text = text.strip()
 
     if not text:
-
         raise ValueError(
             "No readable text could be extracted from this TXT file."
         )
@@ -248,9 +606,8 @@ def extract_document_text(
     - TXT
 
     Legacy binary DOC and PPT files are not directly supported by
-    python-docx/python-pptx. They are recognized so callers receive
-    a clear error instead of silently treating them as unsupported
-    text.
+    python-docx/python-pptx. They are recognized so callers receive a clear
+    error instead of silently treating them as unsupported text.
     """
 
     path = Path(file_path)
@@ -267,18 +624,12 @@ def extract_document_text(
             str(path)
         )
 
-    if extension in {
-        ".docx",
-    }:
+    if extension == ".docx":
         return extract_docx_text(
             str(path)
         )
 
-    if extension in {
-        ".pptx",
-        ".ppt",
-    }:
-
+    if extension in {".pptx", ".ppt"}:
         if extension == ".ppt":
             raise ValueError(
                 "Legacy .ppt files are not directly supported for text extraction. "

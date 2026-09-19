@@ -22,6 +22,8 @@ function Library() {
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [sortOption, setSortOption] = useState("recent");
+  const [categoryFilter, setCategoryFilter] =
+    useState("All Materials");
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -297,6 +299,10 @@ function Library() {
   const displayedMaterials = useMemo(() => {
     let result = [...uploadedMaterials];
 
+    /*
+     * Search
+     */
+
     if (searchQuery.trim()) {
       result = result.filter((material) =>
         material.title
@@ -307,12 +313,61 @@ function Library() {
       );
     }
 
+    /*
+     * Toolbar type filter
+     */
+
     if (typeFilter !== "ALL") {
       result = result.filter(
         (material) =>
           material.type === typeFilter
       );
     }
+
+    /*
+     * Category tabs
+     */
+
+    if (categoryFilter === "PDFs") {
+      result = result.filter(
+        (material) =>
+          material.type === "PDF"
+      );
+    }
+
+    if (
+      categoryFilter === "Presentations"
+    ) {
+      result = result.filter(
+        (material) =>
+          material.type === "PPT"
+      );
+    }
+
+    if (categoryFilter === "Notes") {
+      result = result.filter(
+        (material) =>
+          material.type === "DOC" ||
+          material.type === "TXT"
+      );
+    }
+
+    /*
+     * Recent
+     *
+     * Materials are returned by the backend
+     * in newest-first order. Until the backend
+     * exposes a real timestamp, keep the most
+     * recently returned five materials here.
+     */
+
+    if (categoryFilter === "Recent") {
+      result = result.slice(0, 5);
+    }
+
+    /*
+     * Sorting
+     */
 
     if (sortOption === "name-asc") {
       result.sort((a, b) =>
@@ -331,6 +386,7 @@ function Library() {
     uploadedMaterials,
     searchQuery,
     typeFilter,
+    categoryFilter,
     sortOption,
   ]);
 
@@ -400,7 +456,10 @@ function Library() {
           }}
           className="mt-1"
         >
-          <LibraryTabs />
+          <LibraryTabs
+            activeTab={categoryFilter}
+            onTabChange={setCategoryFilter}
+          />
         </motion.div>
 
         {/* Error State */}

@@ -33,6 +33,7 @@ import {
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
+
 function MaterialDetails() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -43,6 +44,9 @@ function MaterialDetails() {
   const [fileUrl, setFileUrl] = useState("");
   const [fileLoading, setFileLoading] = useState(false);
   const [fileError, setFileError] = useState("");
+  const [renderedFileUrl, setRenderedFileUrl] = useState("");
+  const [renderedFileLoading, setRenderedFileLoading] = useState(false);
+  const [renderedFileError, setRenderedFileError] = useState("");
 
   // --------------------------------------------------
   // AI Summary states
@@ -230,6 +234,96 @@ function MaterialDetails() {
       }
     };
   }, [material?.id, token]);
+
+  // --------------------------------------------------
+  // Load server-rendered PDF for Office documents
+  // --------------------------------------------------
+
+  useEffect(() => {
+    if (
+      !token ||
+      !material?.id ||
+      material.type === "PDF"
+    ) {
+      setRenderedFileUrl("");
+      setRenderedFileLoading(false);
+      setRenderedFileError("");
+      return;
+    }
+
+    let isMounted = true;
+    let objectUrl = "";
+
+    const fetchRenderedFile = async () => {
+      try {
+        setRenderedFileLoading(true);
+        setRenderedFileError("");
+        setRenderedFileUrl("");
+
+        const response = await fetch(
+          `${API_BASE_URL}/api/materials/${material.id}/rendered-file`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (!response.ok) {
+          let errorMessage =
+            "Unable to prepare the document preview.";
+
+          try {
+            const errorData = await response.json();
+
+            if (errorData?.detail) {
+              errorMessage = Array.isArray(errorData.detail)
+                ? errorData.detail.map((item) => item.msg).join(", ")
+                : errorData.detail;
+            }
+          } catch {
+            // Keep the default error message.
+          }
+
+          throw new Error(errorMessage);
+        }
+
+        const blob = await response.blob();
+        objectUrl = URL.createObjectURL(blob);
+
+        if (isMounted) {
+          setRenderedFileUrl(objectUrl);
+        }
+      } catch (error) {
+        console.error(
+          "Error loading rendered material:",
+          error
+        );
+
+        if (isMounted) {
+          setRenderedFileUrl("");
+          setRenderedFileError(
+            error.message ||
+              "Unable to prepare the document preview."
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setRenderedFileLoading(false);
+        }
+      }
+    };
+
+    void fetchRenderedFile();
+
+    return () => {
+      isMounted = false;
+
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [material?.id, material?.type, token]);
 
   // --------------------------------------------------
   // Generate AI Summary
@@ -1060,7 +1154,7 @@ function MaterialDetails() {
 
             </div>
 
-            {/* Actual PDF */}
+            {/* Document Preview */}
             {isPDF ? (
 
               <div className="h-[calc(100vh-260px)] min-h-[650px] bg-gray-200">
@@ -1109,44 +1203,71 @@ function MaterialDetails() {
 
             ) : (
 
-              <div className="flex min-h-[650px] items-center justify-center bg-gray-100 p-8">
+              <div className="h-[calc(100vh-260px)] min-h-[650px] bg-gray-200">
 
-                <div className="max-w-md text-center">
-
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-200">
-
-                    <FileText
-                      size={30}
-                      className="text-gray-500"
-                    />
-
+                {fileLoading || renderedFileLoading ? (
+                  <div className="flex h-full min-h-[650px] items-center justify-center">
+                    <div className="text-center">
+                      <Loader2
+                        size={34}
+                        className="mx-auto animate-spin text-[#2FA084]"
+                      />
+                      <h3 className="mt-4 text-lg font-semibold text-gray-700">
+                        Preparing document preview...
+                      </h3>
+                      <p className="mt-2 text-sm text-gray-400">
+                        EduMind is converting this file into a viewable document.
+                      </p>
+                    </div>
                   </div>
-
-                  <h2 className="mt-4 text-lg font-semibold text-gray-700">
-                    Preview not available
-                  </h2>
-
-                  <p className="mt-2 text-sm text-gray-400">
-                    Browser preview is currently available for PDF
-                    files. You can download this material to open it
-                    with the appropriate application.
-                  </p>
-
-                  <a
-                    href={fileUrl || undefined}
-                    download={fileUrl ? material.title : undefined}
-                    aria-disabled={!fileUrl}
-                    className={`mt-5 inline-flex items-center gap-2 rounded-xl bg-[#2FA084] px-4 py-2.5 text-sm font-semibold text-white transition ${
-                      fileUrl
-                        ? "hover:bg-[#1F6F5F]"
-                        : "pointer-events-none cursor-not-allowed opacity-50"
-                    }`}
-                  >
-                    <Download size={17} />
-                    {fileLoading ? "Loading File..." : "Download File"}
-                  </a>
-
-                </div>
+                ) : fileError || renderedFileError ? (
+                  <div className="flex h-full min-h-[650px] items-center justify-center px-6">
+                    <div className="max-w-lg text-center">
+                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-red-50 text-red-500">
+                        <AlertCircle size={30} />
+                      </div>
+                      <h3 className="mt-5 text-lg font-semibold text-gray-700">
+                        Preview could not be created
+                      </h3>
+                      <p className="mt-2 text-sm leading-6 text-gray-500">
+                        {fileError || renderedFileError}
+                      </p>
+                      <a
+                        href={fileUrl || undefined}
+                        download={fileUrl ? material.title : undefined}
+                        className={`mt-5 inline-flex items-center gap-2 rounded-xl bg-[#2FA084] px-4 py-2.5 text-sm font-semibold text-white transition ${
+                          fileUrl
+                            ? "hover:bg-[#1F6F5F]"
+                            : "pointer-events-none cursor-not-allowed opacity-50"
+                        }`}
+                      >
+                        <Download size={17} />
+                        Download File
+                      </a>
+                    </div>
+                  </div>
+                ) : renderedFileUrl ? (
+                  <iframe
+                    src={renderedFileUrl}
+                    title={`${material.title} rendered preview`}
+                    className="h-full w-full border-0"
+                  />
+                ) : (
+                  <div className="flex h-full min-h-[650px] items-center justify-center px-6">
+                    <div className="text-center">
+                      <FileText
+                        size={44}
+                        className="mx-auto text-gray-300"
+                      />
+                      <h3 className="mt-4 text-lg font-semibold text-gray-700">
+                        Preview not available
+                      </h3>
+                      <p className="mt-2 text-sm text-gray-400">
+                        Download the file to open it in its original application.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
               </div>
 

@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -52,6 +53,144 @@ class FlashcardSessionRequest(BaseModel):
         "medium",
         "hard",
     ] = "medium"
+
+
+# ==================================================
+# STUDY STREAK
+# ==================================================
+
+def calculate_study_streak(
+    db: Session,
+    current_user: User,
+):
+    """
+    Calculate study streak information from recorded
+    quiz and flashcard activity.
+
+    A study day is a calendar day on which the user
+    completed a quiz or recorded a flashcard session.
+    """
+
+    events = (
+        db.query(AnalyticsEvent.created_at)
+        .join(
+            Material,
+            AnalyticsEvent.material_id == Material.id,
+        )
+        .filter(
+            Material.user_id == current_user.id,
+            AnalyticsEvent.event_type.in_(
+                [
+                    "quiz_completed",
+                    "flashcards_reviewed",
+                ]
+            ),
+            AnalyticsEvent.created_at.isnot(None),
+        )
+        .order_by(
+            AnalyticsEvent.created_at.asc()
+        )
+        .all()
+    )
+
+    active_dates = set()
+
+    for event in events:
+        created_at = event.created_at
+
+        if created_at is None:
+            continue
+
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(
+                tzinfo=timezone.utc
+            )
+
+        local_date = created_at.astimezone().date()
+
+        active_dates.add(local_date)
+
+    if not active_dates:
+        return {
+            "current_streak": 0,
+            "longest_streak": 0,
+            "active_days_this_week": 0,
+            "week_progress": 0,
+        }
+
+    sorted_dates = sorted(active_dates)
+
+    # --------------------------------------------------
+    # Longest streak
+    # --------------------------------------------------
+
+    longest_streak = 1
+    running_streak = 1
+
+    for index in range(1, len(sorted_dates)):
+        previous_date = sorted_dates[index - 1]
+        current_date = sorted_dates[index]
+
+        if current_date == previous_date + timedelta(days=1):
+            running_streak += 1
+        else:
+            running_streak = 1
+
+        longest_streak = max(
+            longest_streak,
+            running_streak,
+        )
+
+    # --------------------------------------------------
+    # Current streak
+    # --------------------------------------------------
+
+    today = datetime.now().astimezone().date()
+    yesterday = today - timedelta(days=1)
+
+    if today in active_dates:
+        streak_date = today
+    elif yesterday in active_dates:
+        streak_date = yesterday
+    else:
+        streak_date = None
+
+    current_streak = 0
+
+    if streak_date is not None:
+        current_streak = 1
+
+        while (
+            streak_date - timedelta(days=1)
+            in active_dates
+        ):
+            streak_date -= timedelta(days=1)
+            current_streak += 1
+
+    # --------------------------------------------------
+    # Current week activity
+    # --------------------------------------------------
+
+    start_of_week = today - timedelta(
+        days=today.weekday()
+    )
+
+    active_days_this_week = sum(
+        1
+        for active_date in active_dates
+        if start_of_week
+        <= active_date
+        <= today
+    )
+
+    return {
+        "current_streak": current_streak,
+        "longest_streak": longest_streak,
+        "active_days_this_week": active_days_this_week,
+        "week_progress": round(
+            (active_days_this_week / 7) * 100
+        ),
+    }
 
 
 # ==================================================
@@ -191,7 +330,8 @@ def get_analytics(
     valid_quiz_events = [
         event
         for event in quiz_events
-        if event.total and event.total > 0
+        if event.total
+        and event.total > 0
         and event.score is not None
     ]
 
@@ -233,6 +373,15 @@ def get_analytics(
     flashcards_reviewed = sum(
         event.item_count or 0
         for event in flashcard_events
+    )
+
+    # --------------------------------------------------
+    # Study streak
+    # --------------------------------------------------
+
+    study_streak = calculate_study_streak(
+        db,
+        current_user,
     )
 
     # --------------------------------------------------
@@ -468,6 +617,7 @@ def get_analytics(
             ),
             "flashcards_reviewed": flashcards_reviewed,
         },
+        "study_streak": study_streak,
         "score_trend": score_trend,
         "material_performance": material_results,
         "recent_activity": recent_activity,
