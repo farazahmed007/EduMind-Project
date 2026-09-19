@@ -107,21 +107,20 @@ export default function Tutor() {
         const data =
           await response.json();
 
-        const pdfMaterials =
+        const supportedMaterials =
           Array.isArray(data)
-            ? data.filter(
-                (material) =>
-                  String(
-                    material.type
-                  ).toUpperCase() === "PDF"
+            ? data.filter((material) =>
+                ["PDF", "PPT", "DOC", "TXT"].includes(
+                  String(material.type).toUpperCase()
+                )
               )
             : [];
 
-        setMaterials(pdfMaterials);
+        setMaterials(supportedMaterials);
 
-        if (pdfMaterials.length > 0) {
+        if (supportedMaterials.length > 0) {
           setSelectedMaterialId(
-            String(pdfMaterials[0].id)
+            String(supportedMaterials[0].id)
           );
         }
       } catch (error) {
@@ -415,7 +414,7 @@ export default function Tutor() {
   }
 
   // --------------------------------------------------
-  // No PDF materials
+  // No supported study materials
   // --------------------------------------------------
 
   if (materials.length === 0) {
@@ -452,7 +451,7 @@ export default function Tutor() {
                 </h1>
 
                 <p className="mx-auto mt-3 max-w-md text-sm leading-7 text-[#7c8b86]">
-                  Upload a PDF to your Learning Library
+                  Upload study material to your Learning Library
                   before starting a grounded tutoring
                   session.
                 </p>
@@ -462,7 +461,7 @@ export default function Tutor() {
                     size={14}
                     className="text-[#2fa084]"
                   />
-                  Add a PDF from your Library
+                  Add study material from your Library
                 </div>
               </div>
             </div>
@@ -634,7 +633,9 @@ export default function Tutor() {
 
                   <div>
                     <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-[#9aa7a2]">
-                      PDF
+                      {String(
+                        selectedMaterial.type || "FILE"
+                      ).toUpperCase()}
                     </p>
 
                     <p className="text-[10px] font-semibold text-[#65746e]">

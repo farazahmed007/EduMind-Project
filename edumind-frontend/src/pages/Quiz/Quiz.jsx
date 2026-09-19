@@ -119,7 +119,7 @@ export default function Quiz() {
   const [quizAnalyticsError, setQuizAnalyticsError] = useState("");
 
   // --------------------------------------------------
-  // Load PDF materials
+  // Load supported study materials
   // --------------------------------------------------
 
   useEffect(() => {
@@ -156,17 +156,20 @@ export default function Quiz() {
 
         const data = await response.json();
 
-        const pdfMaterials = Array.isArray(data)
-          ? data.filter(
-              (material) =>
-                String(material.type).toUpperCase() === "PDF"
+        const supportedMaterials = Array.isArray(data)
+          ? data.filter((material) =>
+              ["PDF", "PPT", "DOC", "TXT"].includes(
+                String(material.type).toUpperCase()
+              )
             )
           : [];
 
-        setMaterials(pdfMaterials);
+        setMaterials(supportedMaterials);
 
-        if (pdfMaterials.length > 0) {
-          setSelectedMaterialId(String(pdfMaterials[0].id));
+        if (supportedMaterials.length > 0) {
+          setSelectedMaterialId(
+            String(supportedMaterials[0].id)
+          );
         }
       } catch (error) {
         console.error("Error loading quiz materials:", error);
@@ -555,7 +558,7 @@ export default function Quiz() {
   }
 
   // --------------------------------------------------
-  // No PDFs
+  // No supported study materials
   // --------------------------------------------------
 
   if (materials.length === 0) {
@@ -586,8 +589,8 @@ export default function Quiz() {
               </h1>
 
               <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-[#84918c]">
-                Upload a PDF to your Learning Library and EduMind
-                will turn it into an interactive quiz.
+                Upload study material to your Learning Library and
+                EduMind will turn it into an interactive quiz.
               </p>
             </div>
           </motion.div>
@@ -1361,7 +1364,9 @@ export default function Quiz() {
                     </label>
 
                     <span className="text-[10px] font-semibold text-[#9aa6a1]">
-                      PDF
+                      {String(
+                        selectedMaterial?.type || "FILE"
+                      ).toUpperCase()}
                     </span>
                   </div>
 
