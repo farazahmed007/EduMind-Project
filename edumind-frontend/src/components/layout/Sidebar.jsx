@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   LayoutDashboard,
   Library,
@@ -17,6 +17,7 @@ import {
 
 import Logo from "./Logo";
 import SidebarItem from "./SidebarItem";
+import { useAuth } from "../../context/AuthContext";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -80,86 +81,117 @@ export default function Sidebar({
   isOpen = true,
   onToggle,
 }) {
+  const { token } = useAuth();
+
   const [streak, setStreak] = useState(0);
   const [activeDaysThisWeek, setActiveDaysThisWeek] = useState(0);
   const [streakLoading, setStreakLoading] = useState(true);
 
+  const fetchStreak = useCallback(async () => {
+    if (!token) {
+      setStreak(0);
+      setActiveDaysThisWeek(0);
+      setStreakLoading(false);
+      return;
+    }
+
+    try {
+      setStreakLoading(true);
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/analytics/`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Analytics request failed with status ${response.status}`
+        );
+      }
+
+      const data = await response.json();
+      const studyStreak = data?.study_streak;
+
+      setStreak(
+        Number(studyStreak?.current_streak ?? 0)
+      );
+
+      setActiveDaysThisWeek(
+        Number(
+          studyStreak?.active_days_this_week ?? 0
+        )
+      );
+    } catch (error) {
+      console.error(
+        "Unable to load study streak:",
+        error
+      );
+
+      setStreak(0);
+      setActiveDaysThisWeek(0);
+    } finally {
+      setStreakLoading(false);
+    }
+  }, [token]);
+
   useEffect(() => {
-    let isMounted = true;
-
-    const fetchStreak = async () => {
-      const token = localStorage.getItem("access_token");
-
-      if (!token) {
-        if (isMounted) {
-          setStreak(0);
-          setActiveDaysThisWeek(0);
-          setStreakLoading(false);
-        }
-
-        return;
-      }
-
-      try {
-        const response = await fetch(
-          `${API_BASE_URL}/api/analytics/`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error(
-            `Analytics request failed with status ${response.status}`
-          );
-        }
-
-        const data = await response.json();
-        const studyStreak = data?.study_streak;
-
-        if (isMounted) {
-          setStreak(
-            studyStreak?.current_streak ?? 0
-          );
-
-          setActiveDaysThisWeek(
-            studyStreak?.active_days_this_week ?? 0
-          );
-        }
-      } catch (error) {
-        console.error(
-          "Unable to load study streak:",
-          error
-        );
-
-        if (isMounted) {
-          setStreak(0);
-          setActiveDaysThisWeek(0);
-        }
-      } finally {
-        if (isMounted) {
-          setStreakLoading(false);
-        }
-      }
-    };
-
     fetchStreak();
 
-    return () => {
-      isMounted = false;
+    const handleActivityUpdate = () => {
+      fetchStreak();
     };
-  }, []);
+
+    const handleWindowFocus = () => {
+      fetchStreak();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchStreak();
+      }
+    };
+
+    window.addEventListener(
+      "edumind:activity-updated",
+      handleActivityUpdate
+    );
+
+    window.addEventListener(
+      "focus",
+      handleWindowFocus
+    );
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
+
+    return () => {
+      window.removeEventListener(
+        "edumind:activity-updated",
+        handleActivityUpdate
+      );
+
+      window.removeEventListener(
+        "focus",
+        handleWindowFocus
+      );
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      );
+    };
+  }, [fetchStreak]);
 
   const weeklyProgress = Math.min(
     Math.round((activeDaysThisWeek / 7) * 100),
     100
   );
-
-  const streakLabel = streakLoading
-    ? "..."
-    : `${streak} ${streak === 1 ? "day" : "days"}`;
 
   const weeklyLabel = streakLoading
     ? "... / 7"
@@ -172,7 +204,9 @@ export default function Sidebar({
       : activeDaysThisWeek === 0
         ? "Start studying today to build your streak."
         : `${7 - activeDaysThisWeek} more focused ${
-            7 - activeDaysThisWeek === 1 ? "day" : "days"
+            7 - activeDaysThisWeek === 1
+              ? "day"
+              : "days"
           } to complete your week.`;
 
   return (

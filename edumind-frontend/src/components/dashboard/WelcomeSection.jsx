@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ArrowUpRight,
   BookOpen,
@@ -12,73 +12,106 @@ import { useAuth } from "../../context/AuthContext";
 const API_BASE_URL = "http://127.0.0.1:8000";
 
 function WelcomeSection() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
 
   const [streak, setStreak] = useState(0);
   const [streakLoading, setStreakLoading] = useState(true);
 
   const displayName = user?.name || "User";
 
+  const fetchStreak = useCallback(async () => {
+    if (!token) {
+      setStreak(0);
+      setStreakLoading(false);
+      return;
+    }
+
+    try {
+      setStreakLoading(true);
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/analytics/`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Analytics request failed with status ${response.status}`
+        );
+      }
+
+      const data = await response.json();
+
+      setStreak(
+        Number(
+          data?.study_streak?.current_streak ?? 0
+        )
+      );
+    } catch (error) {
+      console.error(
+        "Unable to load study streak:",
+        error
+      );
+
+      setStreak(0);
+    } finally {
+      setStreakLoading(false);
+    }
+  }, [token]);
+
   useEffect(() => {
-    let isMounted = true;
-
-    const fetchStreak = async () => {
-      const token = localStorage.getItem("access_token");
-
-      if (!token) {
-        if (isMounted) {
-          setStreak(0);
-          setStreakLoading(false);
-        }
-
-        return;
-      }
-
-      try {
-        const response = await fetch(
-          `${API_BASE_URL}/api/analytics/`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error(
-            `Analytics request failed with status ${response.status}`
-          );
-        }
-
-        const data = await response.json();
-
-        if (isMounted) {
-          setStreak(
-            data?.study_streak?.current_streak ?? 0
-          );
-        }
-      } catch (error) {
-        console.error(
-          "Unable to load study streak:",
-          error
-        );
-
-        if (isMounted) {
-          setStreak(0);
-        }
-      } finally {
-        if (isMounted) {
-          setStreakLoading(false);
-        }
-      }
-    };
-
     fetchStreak();
 
-    return () => {
-      isMounted = false;
+    const handleActivityUpdate = () => {
+      fetchStreak();
     };
-  }, []);
+
+    const handleWindowFocus = () => {
+      fetchStreak();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchStreak();
+      }
+    };
+
+    window.addEventListener(
+      "edumind:activity-updated",
+      handleActivityUpdate
+    );
+
+    window.addEventListener(
+      "focus",
+      handleWindowFocus
+    );
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
+
+    return () => {
+      window.removeEventListener(
+        "edumind:activity-updated",
+        handleActivityUpdate
+      );
+
+      window.removeEventListener(
+        "focus",
+        handleWindowFocus
+      );
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      );
+    };
+  }, [fetchStreak]);
 
   const streakLabel = streakLoading
     ? "..."

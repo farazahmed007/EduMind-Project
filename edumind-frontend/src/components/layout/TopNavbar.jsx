@@ -1,4 +1,9 @@
-import { useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
 import {
   Bell,
   Menu,
@@ -9,23 +14,47 @@ import {
   Settings,
   X,
 } from "lucide-react";
+
 import { useNavigate } from "react-router-dom";
+
 import { useAuth } from "../../context/AuthContext";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
-export default function TopNavbar({ onMenuClick }) {
+export default function TopNavbar({
+  onMenuClick,
+}) {
   const navigate = useNavigate();
 
   const {
     user,
+    token,
     logout,
   } = useAuth();
 
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] =
+    useState(false);
 
-  const displayName = user?.name || "User";
+  const [notificationsOpen, setNotificationsOpen] =
+    useState(false);
+
+  const [searchQuery, setSearchQuery] =
+    useState("");
+
+  const [materials, setMaterials] =
+    useState([]);
+
+  const [searchOpen, setSearchOpen] =
+    useState(false);
+
+  const [searchLoading, setSearchLoading] =
+    useState(false);
+
+  const searchContainerRef =
+    useRef(null);
+
+  const displayName =
+    user?.name || "User";
 
   const initials = displayName
     .trim()
@@ -40,29 +69,205 @@ export default function TopNavbar({ onMenuClick }) {
     : null;
 
   // --------------------------------------------------
+  // Load materials for global search
+  // --------------------------------------------------
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchMaterials = async () => {
+      if (!token) {
+        if (isMounted) {
+          setMaterials([]);
+        }
+
+        return;
+      }
+
+      try {
+        setSearchLoading(true);
+
+        const response = await fetch(
+          `${API_BASE_URL}/api/materials/`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            `Materials request failed with status ${response.status}`
+          );
+        }
+
+        const data = await response.json();
+
+        if (isMounted) {
+          setMaterials(
+            Array.isArray(data)
+              ? data
+              : []
+          );
+        }
+      } catch (error) {
+        console.error(
+          "Unable to load materials for search:",
+          error
+        );
+
+        if (isMounted) {
+          setMaterials([]);
+        }
+      } finally {
+        if (isMounted) {
+          setSearchLoading(false);
+        }
+      }
+    };
+
+    fetchMaterials();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [token]);
+
+  // --------------------------------------------------
+  // Search results
+  // --------------------------------------------------
+
+  const normalizedQuery =
+    searchQuery.trim().toLowerCase();
+
+  const searchResults =
+    normalizedQuery.length === 0
+      ? []
+      : materials
+          .filter((material) => {
+            const title = String(
+              material?.title ||
+                material?.filename ||
+                material?.name ||
+                ""
+            ).toLowerCase();
+
+            const type = String(
+              material?.type || ""
+            ).toLowerCase();
+
+            return (
+              title.includes(normalizedQuery) ||
+              type.includes(normalizedQuery)
+            );
+          })
+          .slice(0, 8);
+
+  // --------------------------------------------------
+  // Close search when clicking outside
+  // --------------------------------------------------
+
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(
+          event.target
+        )
+      ) {
+        setSearchOpen(false);
+      }
+    };
+
+    document.addEventListener(
+      "mousedown",
+      handleOutsideClick
+    );
+
+    return () => {
+      document.removeEventListener(
+        "mousedown",
+        handleOutsideClick
+      );
+    };
+  }, []);
+
+  // --------------------------------------------------
+  // Search keyboard handling
+  // --------------------------------------------------
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setSearchOpen(false);
+      }
+
+      if (
+        event.key === "/" &&
+        document.activeElement?.tagName !==
+          "INPUT" &&
+        document.activeElement?.tagName !==
+          "TEXTAREA"
+      ) {
+        event.preventDefault();
+
+        const input =
+          searchContainerRef.current?.querySelector(
+            "input"
+          );
+
+        input?.focus();
+      }
+    };
+
+    document.addEventListener(
+      "keydown",
+      handleKeyDown
+    );
+
+    return () => {
+      document.removeEventListener(
+        "keydown",
+        handleKeyDown
+      );
+    };
+  }, []);
+
+  // --------------------------------------------------
   // Navigation
   // --------------------------------------------------
 
   const handleMenuClick = () => {
     setProfileOpen(false);
     setNotificationsOpen(false);
+    setSearchOpen(false);
+
     onMenuClick?.();
   };
 
   const handleNotificationClick = () => {
-    setNotificationsOpen((previous) => !previous);
+    setNotificationsOpen(
+      (previous) => !previous
+    );
+
     setProfileOpen(false);
+    setSearchOpen(false);
   };
 
   const handleProfile = () => {
     setProfileOpen(false);
     setNotificationsOpen(false);
+    setSearchOpen(false);
+
     navigate("/profile");
   };
 
   const handleSettings = () => {
     setProfileOpen(false);
     setNotificationsOpen(false);
+    setSearchOpen(false);
+
     navigate("/settings");
   };
 
@@ -71,10 +276,96 @@ export default function TopNavbar({ onMenuClick }) {
 
     setProfileOpen(false);
     setNotificationsOpen(false);
+    setSearchOpen(false);
 
     navigate("/login", {
       replace: true,
     });
+  };
+
+  const handleSearchChange = (event) => {
+    const value = event.target.value;
+
+    setSearchQuery(value);
+    setSearchOpen(
+      value.trim().length > 0
+    );
+
+    setProfileOpen(false);
+    setNotificationsOpen(false);
+  };
+
+  const handleSearchFocus = () => {
+    if (searchQuery.trim()) {
+      setSearchOpen(true);
+    }
+  };
+
+  const handleMaterialSelect = (
+    material
+  ) => {
+    if (!material?.id) {
+      return;
+    }
+
+    setSearchOpen(false);
+    setSearchQuery("");
+
+    navigate(
+      `/library/${material.id}`
+    );
+  };
+
+  const getMaterialTitle = (
+    material
+  ) => {
+    return (
+      material?.title ||
+      material?.filename ||
+      material?.name ||
+      "Untitled material"
+    );
+  };
+
+  const getMaterialType = (
+    material
+  ) => {
+    const type = String(
+      material?.type || "FILE"
+    ).toUpperCase();
+
+    return type;
+  };
+
+  const getMaterialIconLabel = (
+    material
+  ) => {
+    const type =
+      getMaterialType(material);
+
+    if (type === "PDF") {
+      return "PDF";
+    }
+
+    if (
+      type === "PPT" ||
+      type === "PPTX"
+    ) {
+      return "PPT";
+    }
+
+    if (
+      type === "DOC" ||
+      type === "DOCX"
+    ) {
+      return "DOC";
+    }
+
+    if (type === "TXT") {
+      return "TXT";
+    }
+
+    return "FILE";
   };
 
   return (
@@ -118,27 +409,122 @@ export default function TopNavbar({ onMenuClick }) {
       {/* ================================================== */}
 
       <div className="mx-3 flex min-w-0 flex-1 justify-center sm:mx-auto sm:px-6">
-        <div className="relative w-full max-w-[560px]">
+        <div
+          ref={searchContainerRef}
+          className="relative w-full max-w-[560px]"
+        >
           <Search
             size={18}
             strokeWidth={2}
-            className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#8b9994]"
+            className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-[#8b9994]"
           />
 
           <input
             type="text"
+            value={searchQuery}
+            onChange={handleSearchChange}
+            onFocus={handleSearchFocus}
             placeholder="Search topics, notes, quizzes..."
             aria-label="Search EduMind"
+            aria-expanded={searchOpen}
+            aria-haspopup="listbox"
             className="h-11 w-full rounded-xl border border-[#e1e9e5] bg-[#f7faf9] pl-11 pr-16 text-sm font-medium text-[#17211e] outline-none transition-all duration-200 placeholder:text-[#9aa7a2] hover:border-[#cddbd5] hover:bg-white focus:border-[#6fcf97] focus:bg-white focus:ring-4 focus:ring-[#6fcf97]/10"
           />
 
           {/* Keyboard Hint */}
 
-          <div className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 items-center gap-1 sm:flex">
-            <kbd className="rounded-md border border-[#dce5e1] bg-white px-1.5 py-0.5 text-[10px] font-semibold text-[#899690] shadow-sm">
-              /
-            </kbd>
-          </div>
+          {!searchQuery && (
+            <div className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 items-center gap-1 sm:flex">
+              <kbd className="rounded-md border border-[#dce5e1] bg-white px-1.5 py-0.5 text-[10px] font-semibold text-[#899690] shadow-sm">
+                /
+              </kbd>
+            </div>
+          )}
+
+          {/* Search Results */}
+
+          {searchOpen && (
+            <div
+              className="absolute left-0 right-0 top-full z-[60] mt-2 overflow-hidden rounded-2xl border border-[#dfe8e4] bg-white shadow-[0_18px_50px_rgba(23,33,30,0.14)]"
+              role="listbox"
+              aria-label="Search results"
+            >
+              {searchLoading ? (
+                <div className="px-4 py-6 text-center">
+                  <div className="mx-auto h-5 w-5 animate-spin rounded-full border-2 border-[#dceee6] border-t-[#2fa084]" />
+
+                  <p className="mt-2 text-xs font-medium text-[#7b8984]">
+                    Searching your library...
+                  </p>
+                </div>
+              ) : searchResults.length > 0 ? (
+                <div className="max-h-[360px] overflow-y-auto p-2">
+                  <div className="px-3 pb-2 pt-1">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#94a39d]">
+                      Library results
+                    </p>
+                  </div>
+
+                  {searchResults.map(
+                    (material) => (
+                      <button
+                        key={material.id}
+                        type="button"
+                        onClick={() =>
+                          handleMaterialSelect(
+                            material
+                          )
+                        }
+                        className="group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors duration-150 hover:bg-[#f2f8f5]"
+                        role="option"
+                      >
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#e8f6f0] text-[9px] font-bold text-[#1f6f5f]">
+                          {getMaterialIconLabel(
+                            material
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-[#25322e] group-hover:text-[#176b5b]">
+                            {getMaterialTitle(
+                              material
+                            )}
+                          </p>
+
+                          <p className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-[#94a39d]">
+                            {getMaterialType(
+                              material
+                            )}
+                          </p>
+                        </div>
+
+                        <span className="shrink-0 text-[#a2aea9] transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-[#2fa084]">
+                          →
+                        </span>
+                      </button>
+                    )
+                  )}
+                </div>
+              ) : (
+                <div className="px-4 py-7 text-center">
+                  <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-[#f2f7f5] text-[#8b9994]">
+                    <Search
+                      size={17}
+                      strokeWidth={2}
+                    />
+                  </div>
+
+                  <p className="mt-3 text-sm font-semibold text-[#53635d]">
+                    No matching materials found
+                  </p>
+
+                  <p className="mx-auto mt-1 max-w-[260px] text-xs leading-5 text-[#8a9892]">
+                    Try searching for the name or type of a material in your Learning Library.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -161,7 +547,9 @@ export default function TopNavbar({ onMenuClick }) {
                 : "text-[#53635d] hover:bg-[#f2f7f5] hover:text-[#1f6f5f]"
             }`}
             aria-label="Notifications"
-            aria-expanded={notificationsOpen}
+            aria-expanded={
+              notificationsOpen
+            }
             aria-haspopup="dialog"
             title="Notifications"
           >
@@ -193,7 +581,11 @@ export default function TopNavbar({ onMenuClick }) {
 
                 <button
                   type="button"
-                  onClick={() => setNotificationsOpen(false)}
+                  onClick={() =>
+                    setNotificationsOpen(
+                      false
+                    )
+                  }
                   className="flex h-8 w-8 items-center justify-center rounded-lg text-[#82908a] transition-colors hover:bg-[#f2f7f5] hover:text-[#1f6f5f]"
                   aria-label="Close notifications"
                 >
@@ -203,7 +595,10 @@ export default function TopNavbar({ onMenuClick }) {
 
               <div className="px-4 py-8 text-center">
                 <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-[#e8f6f0] text-[#2fa084]">
-                  <Bell size={19} strokeWidth={2} />
+                  <Bell
+                    size={19}
+                    strokeWidth={2}
+                  />
                 </div>
 
                 <p className="mt-3 text-sm font-semibold text-[#53635d]">
@@ -231,8 +626,12 @@ export default function TopNavbar({ onMenuClick }) {
           <button
             type="button"
             onClick={() => {
-              setProfileOpen((previous) => !previous);
+              setProfileOpen(
+                (previous) => !previous
+              );
+
               setNotificationsOpen(false);
+              setSearchOpen(false);
             }}
             className="group flex items-center gap-2 rounded-xl px-1.5 py-1.5 transition-all duration-200 hover:bg-[#f2f7f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6fcf97]/40 sm:gap-3 sm:px-2"
             aria-expanded={profileOpen}
@@ -272,7 +671,9 @@ export default function TopNavbar({ onMenuClick }) {
               size={16}
               strokeWidth={2}
               className={`hidden text-[#82908a] transition-transform duration-200 sm:block ${
-                profileOpen ? "rotate-180" : ""
+                profileOpen
+                  ? "rotate-180"
+                  : ""
               }`}
             />
           </button>
