@@ -1277,10 +1277,12 @@ def generate_material_quiz(
             retrieval_query,
         )
 
+        # Quiz/flashcard generation needs a broad document candidate pool.
+        # Tutor deliberately keeps its existing top-k retrieval above.
         retrieved_chunks = retrieve_relevant_chunks(
             material_id=material_id,
             question=retrieval_query,
-            top_k=8,
+            top_k=5000,
         )
 
         print(
@@ -1429,10 +1431,12 @@ def generate_material_flashcards(
             retrieval_query,
         )
 
+        # Quiz/flashcard generation needs a broad document candidate pool.
+        # Tutor deliberately keeps its existing top-k retrieval above.
         retrieved_chunks = retrieve_relevant_chunks(
             material_id=material_id,
             question=retrieval_query,
-            top_k=8,
+            top_k=5000,
         )
 
         print(

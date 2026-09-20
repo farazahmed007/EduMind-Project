@@ -10,6 +10,7 @@ from api.auth import router as auth_router
 from api.planner import router as planner_router
 from api.adaptive import router as adaptive_router
 from api.profile import router as profile_router
+from api.exams import router as exams_router
 
 from core.database import Base, engine
 
@@ -107,6 +108,10 @@ app.include_router(
 
 app.include_router(
     profile_router
+)
+
+app.include_router(
+    exams_router
 )
 
 

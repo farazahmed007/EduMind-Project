@@ -1,18 +1,20 @@
 import json
+import os
 import re
 import html
 import shutil
+import time
 import subprocess
 import tempfile
 import zipfile
 import posixpath
 import xml.etree.ElementTree as ET
 from zipfile import BadZipFile, ZipFile
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from difflib import SequenceMatcher
+from collections import Counter
 
 import pymupdf
 import pytesseract
@@ -27,6 +29,33 @@ from pptx import Presentation
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "llama3.2:3b"
+
+AI_PROVIDER = "ollama"
+
+HF_TOKEN = os.getenv(
+    "HF_TOKEN",
+    "",
+).strip()
+
+HF_PROVIDER = os.getenv(
+    "HF_PROVIDER",
+    "nscale",
+).strip()
+
+HF_MODEL = os.getenv(
+    "HF_MODEL",
+    "Qwen/Qwen3-4B-Instruct-2507",
+).strip()
+
+GEMINI_API_KEY = os.getenv(
+    "GEMINI_API_KEY",
+    "",
+).strip()
+
+GEMINI_MODEL = os.getenv(
+    "GEMINI_MODEL",
+    "gemini-3.6-flash",
+).strip()
 
 
 # ==================================================
@@ -60,6 +89,152 @@ def _clean_extracted_text(text: str) -> str:
         lines.append(line)
 
     return "\n".join(lines).strip()
+
+
+def extract_pdf_text(file_path: str) -> str:
+    """
+    Extract readable text from a PDF.
+
+    The primary path uses PyMuPDF for normal text-based PDFs. If a page
+    contains little or no extractable text, that page is rendered and passed
+    through the existing Tesseract OCR helper so scanned/image-based PDFs can
+    also be read.
+    """
+
+    path = Path(file_path)
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"PDF file not found: {file_path}"
+        )
+
+    page_texts = []
+    ocr_page_count = 0
+
+    try:
+        document = pymupdf.open(str(path))
+    except Exception as error:
+        raise ValueError(
+            f"Could not open PDF file: {error}"
+        ) from error
+
+    try:
+        if document.page_count == 0:
+            raise ValueError(
+                "The PDF does not contain any pages."
+            )
+
+        for page_number, page in enumerate(document, start=1):
+            extracted = _clean_extracted_text(
+                page.get_text("text")
+            )
+
+            # Normal text PDFs are handled directly. For pages that are
+            # image-only (or effectively empty), fall back to OCR.
+            if extracted and sum(
+                character.isalnum() for character in extracted
+            ) >= 20:
+                page_texts.append(
+                    f"Page {page_number}\n{extracted}"
+                )
+                continue
+
+            try:
+                _configure_tesseract()
+
+                pixmap = page.get_pixmap(
+                    matrix=pymupdf.Matrix(2, 2),
+                    alpha=False,
+                )
+
+                image_bytes = pixmap.tobytes("png")
+
+                with Image.open(
+                    __import__("io").BytesIO(image_bytes)
+                ) as image:
+                    image = image.convert("RGB")
+
+                    if image.width < 1800:
+                        scale = 1800 / max(image.width, 1)
+                        image = image.resize(
+                            (
+                                int(image.width * scale),
+                                int(image.height * scale),
+                            ),
+                            Image.Resampling.LANCZOS,
+                        )
+
+                    grayscale = ImageOps.autocontrast(
+                        ImageOps.grayscale(image)
+                    )
+
+                    ocr_results = []
+
+                    for candidate in (image, grayscale):
+                        try:
+                            ocr_text = pytesseract.image_to_string(
+                                candidate,
+                                lang="eng",
+                                config="--psm 6",
+                            )
+                        except Exception:
+                            continue
+
+                        cleaned_ocr = _clean_extracted_text(
+                            ocr_text
+                        )
+
+                        if cleaned_ocr:
+                            ocr_results.append(
+                                cleaned_ocr
+                            )
+
+                    if ocr_results:
+                        ocr_text = max(
+                            ocr_results,
+                            key=lambda value: sum(
+                                character.isalnum()
+                                for character in value
+                            ),
+                        )
+
+                        if ocr_text:
+                            page_texts.append(
+                                f"Page {page_number}\n{ocr_text}"
+                            )
+                            ocr_page_count += 1
+                            continue
+
+            except Exception as ocr_error:
+                print(
+                    f"PDF OCR failed for page {page_number}: {ocr_error}"
+                )
+
+            # Preserve a page with some extracted text even if it was below
+            # the OCR threshold, so valid short pages are not silently lost.
+            if extracted:
+                page_texts.append(
+                    f"Page {page_number}\n{extracted}"
+                )
+
+    finally:
+        document.close()
+
+    text = _clean_extracted_text(
+        "\n\n".join(page_texts)
+    )
+
+    if not text:
+        raise ValueError(
+            "No readable text could be extracted from this PDF."
+        )
+
+    if ocr_page_count:
+        print(
+            f"PDF text extraction used OCR for {ocr_page_count} page(s)."
+        )
+
+    return text
 
 
 def _extract_docx_xml_text(file_path: str) -> str:
@@ -657,24 +832,102 @@ def extract_document_text(
 
 
 # ==================================================
-# OLLAMA AI REQUEST
+# AI REQUEST
 # ==================================================
 
-def ask_ai(
+def _clean_json_response_text(text: str) -> str:
+    """
+    Remove common trailing commas from JSON returned by hosted models.
+
+    This is intentionally limited to commas immediately before a closing
+    object or array bracket and does not attempt to rewrite the model output.
+    """
+
+    text = str(text or "").strip()
+
+    if not text:
+        return text
+
+    result = []
+    in_string = False
+    escaped = False
+    index = 0
+
+    while index < len(text):
+        character = text[index]
+
+        if in_string:
+            result.append(character)
+
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+
+            index += 1
+            continue
+
+        if character == '"':
+            in_string = True
+            result.append(character)
+            index += 1
+            continue
+
+        if character == ",":
+            lookahead = index + 1
+
+            while (
+                lookahead < len(text)
+                and text[lookahead].isspace()
+            ):
+                lookahead += 1
+
+            if (
+                lookahead < len(text)
+                and text[lookahead] in "}]"
+            ):
+                index += 1
+                continue
+
+        result.append(character)
+        index += 1
+
+    return "".join(result).strip()
+
+
+def _ask_ai_ollama(
     prompt: str,
     json_mode: bool = False,
 ) -> str:
-    """
-    Send a prompt to the local Ollama LLM.
+    """Send a prompt to the local Ollama LLM with stable demo-friendly settings."""
 
-    json_mode=True asks Ollama to return JSON using
-    its native JSON output mode.
-    """
+    # Keep these configurable so the provider remains easy to tune later.
+    # The defaults are intentionally conservative for llama3.2:3b.
+    try:
+        temperature = float(os.getenv("OLLAMA_TEMPERATURE", "0.2"))
+    except ValueError:
+        temperature = 0.2
+
+    try:
+        num_predict = int(os.getenv("OLLAMA_NUM_PREDICT", "5000"))
+    except ValueError:
+        num_predict = 5000
+
+    options = {
+        "temperature": temperature,
+        "top_p": 0.9,
+        "repeat_penalty": 1.1,
+        "num_predict": num_predict,
+    }
 
     payload = {
         "model": OLLAMA_MODEL,
         "prompt": prompt,
         "stream": False,
+        "keep_alive": "10m",
+        "options": options,
     }
 
     if json_mode:
@@ -695,18 +948,15 @@ def ask_ai(
     )
 
     try:
-
         with urlopen(
             request,
-            timeout=180,
+            timeout=300,
         ) as response:
-
             response_data = response.read().decode(
                 "utf-8"
             )
 
     except HTTPError as error:
-
         error_body = error.read().decode(
             "utf-8",
             errors="replace",
@@ -717,26 +967,22 @@ def ask_ai(
         ) from error
 
     except URLError as error:
-
         raise RuntimeError(
             "Could not connect to Ollama. "
             "Make sure Ollama is running on your computer."
         ) from error
 
     except TimeoutError as error:
-
         raise RuntimeError(
             "Ollama took too long to generate a response."
         ) from error
 
     try:
-
         result = json.loads(
             response_data
         )
 
     except json.JSONDecodeError as error:
-
         raise RuntimeError(
             "Ollama returned an invalid API response."
         ) from error
@@ -746,12 +992,169 @@ def ask_ai(
     )
 
     if not answer:
-
         raise RuntimeError(
             "Ollama returned an empty AI response."
         )
 
-    return answer.strip()
+    answer = str(answer).strip()
+
+    if json_mode:
+        answer = _clean_json_response_text(answer)
+
+    return answer
+
+def _ask_ai_huggingface(
+    prompt: str,
+    json_mode: bool = False,
+) -> str:
+    """Send a prompt to the hosted Hugging Face inference provider."""
+
+    if not HF_TOKEN:
+        raise RuntimeError(
+            "HF_TOKEN is not configured. "
+            "Set the Hugging Face inference token before using the hosted AI provider."
+        )
+
+    try:
+        from huggingface_hub import InferenceClient
+    except ImportError as error:
+        raise RuntimeError(
+            "huggingface_hub is not installed. "
+            "Run: pip install -U huggingface_hub"
+        ) from error
+
+    client = InferenceClient(
+        provider=HF_PROVIDER,
+        api_key=HF_TOKEN,
+    )
+
+    messages = [
+        {
+            "role": "user",
+            "content": prompt,
+        }
+    ]
+
+    # The existing EduMind prompts already describe their JSON schemas.
+    # Adding this instruction for JSON calls helps the hosted model stay
+    # machine-readable without changing prompts used by other features.
+    if json_mode:
+        messages[0]["content"] = (
+            f"{prompt}\n\n"
+            "Return ONLY valid JSON. "
+            "Do not use Markdown code fences. "
+            "Do not add trailing commas."
+        )
+
+    try:
+        response = client.chat.completions.create(
+            model=HF_MODEL,
+            messages=messages,
+            max_tokens=4000,
+            temperature=0.2,
+        )
+    except Exception as error:
+        raise RuntimeError(
+            "Hugging Face AI request failed: "
+            f"{error}"
+        ) from error
+
+    try:
+        answer = response.choices[0].message.content
+    except (AttributeError, IndexError, TypeError) as error:
+        raise RuntimeError(
+            "Hugging Face returned an unexpected AI response."
+        ) from error
+
+    if not answer:
+        raise RuntimeError(
+            "Hugging Face returned an empty AI response."
+        )
+
+    answer = str(answer).strip()
+
+    if json_mode:
+        answer = _clean_json_response_text(answer)
+
+    return answer
+
+
+def _ask_ai_gemini(
+    prompt: str,
+    json_mode: bool = False,
+) -> str:
+    """Send a prompt to the hosted Google Gemini model."""
+
+    if not GEMINI_API_KEY:
+        raise RuntimeError(
+            "GEMINI_API_KEY is not configured. "
+            "Set the Gemini API key before using the Gemini AI provider."
+        )
+
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError as error:
+        raise RuntimeError(
+            "google-genai is not installed. "
+            "Run: pip install -U google-genai"
+        ) from error
+
+    try:
+        client = genai.Client(
+            api_key=GEMINI_API_KEY,
+        )
+
+        config = types.GenerateContentConfig(
+            temperature=0.2,
+            max_output_tokens=4000,
+        )
+
+        if json_mode:
+            config.response_mime_type = "application/json"
+
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=config,
+        )
+
+    except Exception as error:
+        raise RuntimeError(
+            "Gemini AI request failed: "
+            f"{error}"
+        ) from error
+
+    try:
+        answer = response.text
+    except (AttributeError, TypeError) as error:
+        raise RuntimeError(
+            "Gemini returned an unexpected AI response."
+        ) from error
+
+    if not answer:
+        raise RuntimeError(
+            "Gemini returned an empty AI response."
+        )
+
+    answer = str(answer).strip()
+
+    if json_mode:
+        answer = _clean_json_response_text(answer)
+
+    return answer
+
+
+def ask_ai(
+    prompt: str,
+    json_mode: bool = False,
+) -> str:
+    """Send all EduMind AI requests to the local llama3.2:3b model."""
+
+    return _ask_ai_ollama(
+        prompt,
+        json_mode=json_mode,
+    )
 
 
 # ==================================================
@@ -1713,7 +2116,7 @@ def are_duplicate_questions(
             None,
             first_normalized,
             second_normalized,
-        ).ratio() >= 0.93
+        ).ratio() >= 0.97
     )
 
 
@@ -2988,8 +3391,701 @@ def choose_diverse_quiz_contexts(
 
 
 # ==================================================
-# GENERATE QUIZ
+# RELIABLE QUIZ GENERATION
 # ==================================================
+
+# llama3.2:3b is reliable for a single constrained MCQ, but it is not
+# consistently reliable when asked to produce many MCQs with four distinct
+# distractors in one JSON object.  For the local demo we therefore optimize
+# for correctness and reliability rather than minimizing Ollama calls.
+#
+# One question is generated and validated at a time.  A failed candidate is
+# discarded before the next candidate is accepted.  Correctness is checked by
+# a separate local Ollama verification call, and the explanation is generated
+# only after the answer is verified.
+#
+# This removes the old all-or-nothing batch failure mode where one malformed
+# question or one pair of duplicate options caused an entire 5/10/15-question
+# quiz to return HTTP 500.
+
+QUIZ_SUPPORTED_COUNTS = {5, 10, 15, 20}
+QUIZ_MAX_ATTEMPTS_PER_QUESTION = 5
+
+
+def build_reliable_single_quiz_prompt(
+    document_context: str,
+    difficulty: str,
+    question_number: int,
+    previous_questions: list[str],
+    rejected_questions: list[str],
+    retry_reason: str = "",
+) -> str:
+    """Build a conservative one-question prompt for llama3.2:3b."""
+
+    previous_text = (
+        "\n".join(
+            f"{index}. {question}"
+            for index, question in enumerate(previous_questions, start=1)
+        )
+        if previous_questions
+        else "None."
+    )
+
+    rejected_text = (
+        "\n".join(
+            f"{index}. {question}"
+            for index, question in enumerate(rejected_questions[-10:], start=1)
+        )
+        if rejected_questions
+        else "None."
+    )
+
+    retry_block = ""
+    if retry_reason:
+        retry_block = f"""
+RETRY REASON:
+{retry_reason}
+
+The previous candidate was rejected. Start from a different fact or concept.
+Do not reuse the previous candidate's question or answer choices.
+"""
+
+    difficulty_rules = {
+        "easy": (
+            "Ask about a direct definition, fact, component, purpose, "
+            "or explicitly stated relationship."
+        ),
+        "medium": (
+            "Ask the student to distinguish related concepts, identify a "
+            "relationship, or apply an idea explicitly explained in the material."
+        ),
+        "hard": (
+            "Ask about a deeper comparison or simple application that can be "
+            "answered entirely from the material."
+        ),
+    }[difficulty]
+
+    return f"""
+You are EduMind, an MCA study assistant creating ONE exam-quality MCQ.
+
+Create exactly ONE question using ONLY the STUDY MATERIAL.
+
+QUESTION NUMBER: {question_number}
+DIFFICULTY: {difficulty.upper()}
+{difficulty_rules}
+
+{retry_block}
+
+PREVIOUSLY ACCEPTED QUESTIONS:
+{previous_text}
+
+RECENTLY REJECTED QUESTIONS:
+{rejected_text}
+
+STRICT MCQ RULES:
+1. Test exactly ONE fact or concept.
+2. The answer must be explicitly supported by the study material.
+3. Return exactly FOUR options.
+4. Every option must be a direct answer to the SAME question.
+5. Exactly ONE option must be correct.
+6. Wrong options must be clearly wrong for this specific question.
+7. Never repeat the same option twice.
+8. Never make two options differ only by a few words while having the same meaning.
+9. Keep the four options similar in length and grammatical form.
+10. Do not use All of the above, None of the above, Both A and B, or combinations.
+11. Do not put option labels such as A., B., C., D. inside the option strings.
+12. Do not put the answer in the question wording.
+13. Do not invent information outside the study material.
+14. Do not create truth-table rows as options.
+15. Prefer concrete, unambiguous questions over tricky wording.
+16. Do not repeat or paraphrase any previously accepted question.
+17. Do not reuse the same fact merely by changing the wording.
+
+Return ONLY this JSON object and nothing else:
+{{
+  "question": "...",
+  "options": [
+    "...",
+    "...",
+    "...",
+    "..."
+  ]
+}}
+
+STUDY MATERIAL:
+{document_context}
+"""
+
+
+def _generate_reliable_quiz_question(
+    document_context: str,
+    difficulty: str,
+    question_number: int,
+    previous_questions: list[str],
+    rejected_questions: list[str],
+    alternative_contexts: list[str] | None = None,
+) -> dict:
+    """Generate one question with validation and bounded retries."""
+
+    contexts = alternative_contexts or [document_context]
+    last_error = None
+    retry_reason = ""
+
+    for attempt in range(1, QUIZ_MAX_ATTEMPTS_PER_QUESTION + 1):
+        # Rotate source windows on retries so a small model is not trapped on
+        # the same concept.
+        context = contexts[(attempt - 1) % len(contexts)]
+
+        print(
+            f"Quiz question {question_number}: "
+            f"attempt {attempt}/{QUIZ_MAX_ATTEMPTS_PER_QUESTION}..."
+        )
+
+        raw_response = None
+        candidate = None
+
+        try:
+            prompt = build_reliable_single_quiz_prompt(
+                document_context=context,
+                difficulty=difficulty,
+                question_number=question_number,
+                previous_questions=previous_questions,
+                rejected_questions=rejected_questions,
+                retry_reason=retry_reason,
+            )
+
+            raw_response = ask_ai(prompt, json_mode=True)
+            candidate = extract_single_quiz_question(raw_response)
+            validated = validate_single_quiz_question(candidate)
+            question_text = validated["question"]
+
+            if any(
+                are_duplicate_questions(question_text, previous)
+                for previous in previous_questions
+            ):
+                raise RuntimeError(
+                    "Generated question is a duplicate or near-duplicate "
+                    "of an earlier accepted question."
+                )
+
+            if any(
+                are_duplicate_questions(question_text, rejected)
+                for rejected in rejected_questions
+            ):
+                raise RuntimeError(
+                    "Generated question repeats a recently rejected question."
+                )
+
+            # Verify that exactly one option is actually supported as the best
+            # answer by the source material. This is a second, independent
+            # Ollama call and is intentionally kept for reliability.
+            verified_letter, _ = verify_quiz_question(
+                question=question_text,
+                options=validated["options"],
+                generated_correct_answer="",
+                explanation="",
+                document_context=context,
+            )
+
+            answer_index = ord(verified_letter) - ord("A")
+            if not 0 <= answer_index < 4:
+                raise RuntimeError(
+                    "Quiz verifier returned an invalid answer index."
+                )
+
+            correct_answer = validated["options"][answer_index]
+
+            explanation = generate_quiz_explanation(
+                question=question_text,
+                correct_option=verified_letter,
+                options=validated["options"],
+                document_context=context,
+            ).strip()
+
+            if not explanation:
+                raise RuntimeError(
+                    "Quiz explanation was empty."
+                )
+
+            validated["correct_option"] = verified_letter
+            validated["correct_answer"] = correct_answer
+            validated["explanation"] = explanation
+
+            print(
+                f"Quiz question {question_number}: accepted "
+                f"on attempt {attempt} (answer {verified_letter})."
+            )
+
+            return validated
+
+        except Exception as error:
+            last_error = error
+            retry_reason = str(error)
+
+            rejected_candidate = ""
+            if isinstance(candidate, dict):
+                rejected_candidate = str(
+                    candidate.get("question", "")
+                ).strip()
+
+            if rejected_candidate and not any(
+                normalize_quiz_string(rejected_candidate)
+                == normalize_quiz_string(existing)
+                for existing in rejected_questions
+            ):
+                rejected_questions.append(rejected_candidate)
+
+            print(
+                f"Quiz question {question_number}: attempt {attempt} failed: {error}"
+            )
+
+            # Raw output is logged for diagnosis but never returned to the
+            # frontend as an error payload.
+            if raw_response is not None:
+                print("RAW OLLAMA QUIZ CANDIDATE:")
+                print(raw_response)
+
+            if attempt < QUIZ_MAX_ATTEMPTS_PER_QUESTION:
+                time.sleep(0.5)
+
+    raise RuntimeError(
+        f"Could not generate a valid quiz question {question_number} "
+        f"after {QUIZ_MAX_ATTEMPTS_PER_QUESTION} attempts: {last_error}"
+    )
+
+
+def _normalize_study_source_text(text: str) -> str:
+    """Normalize a chunk for deterministic source deduplication."""
+
+    return re.sub(
+        r"\s+",
+        " ",
+        str(text or "").strip().lower(),
+    )
+
+
+def build_study_content_pool(
+    retrieved_chunks: list[dict],
+    target_count: int,
+) -> list[dict]:
+    """
+    Build a document-wide, diverse source pool for Quiz and Flashcards.
+
+    The retrieval route supplies the broad candidate set. This function then
+    removes duplicate chunks and selects candidates across the document rather
+    than simply taking the highest-scoring neighboring chunks.
+    """
+
+    if not retrieved_chunks:
+        return []
+
+    try:
+        target_count = max(1, int(target_count))
+    except (TypeError, ValueError):
+        target_count = 1
+
+    cleaned = []
+    seen = set()
+
+    for position, result in enumerate(retrieved_chunks):
+        if not isinstance(result, dict):
+            continue
+
+        text = str(result.get("chunk", "")).strip()
+        if not text:
+            continue
+
+        normalized = _normalize_study_source_text(text)
+        if not normalized or normalized in seen:
+            continue
+
+        seen.add(normalized)
+        try:
+            chunk_index = int(result.get("chunk_index", position))
+        except (TypeError, ValueError):
+            chunk_index = position
+
+        try:
+            score = float(result.get("score", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            score = 0.0
+
+        cleaned.append({
+            "chunk": text,
+            "chunk_index": chunk_index,
+            "score": score,
+        })
+
+    if not cleaned:
+        return []
+
+    cleaned.sort(key=lambda item: item["chunk_index"])
+
+    if len(cleaned) <= target_count:
+        return cleaned
+
+    # Divide the document into ordered bins and take the strongest candidate
+    # from each bin. This preserves document coverage while still respecting
+    # retrieval relevance.
+    selected = []
+    total = len(cleaned)
+
+    for bin_number in range(target_count):
+        start = (bin_number * total) // target_count
+        end = ((bin_number + 1) * total) // target_count
+        end = max(start + 1, end)
+        candidates = cleaned[start:end]
+        best = max(candidates, key=lambda item: item["score"])
+        selected.append(best)
+
+    return selected
+
+
+def _study_source_context(source: dict) -> str:
+    """Format one selected source unit for an AI generation call."""
+
+    chunk_index = source.get("chunk_index", "?")
+    text = str(source.get("chunk", "")).strip()
+    return f"[DOCUMENT SOURCE CHUNK {chunk_index}]\n{text}"
+
+
+def _study_previous_questions_text(previous_questions: list[str]) -> str:
+    """
+    Give the small local model a compact list of already-tested concepts.
+
+    Passing every full previous question makes the prompt grow quickly for
+    15/20-question quizzes and can actually make llama3.2:3b copy a prior
+    question instead of selecting a fresh concept. We therefore expose the
+    semantic keywords, not the full question text. Exact duplicate detection
+    is still performed locally after generation.
+    """
+
+    if not previous_questions:
+        return "None."
+
+    lines = []
+    for index, question in enumerate(previous_questions, start=1):
+        keywords = sorted(
+            quiz_content_keywords(question),
+            key=lambda word: (-len(word), word),
+        )[:8]
+        if keywords:
+            lines.append(f"{index}. {', '.join(keywords)}")
+        else:
+            lines.append(f"{index}. previously tested concept")
+
+    return "\n".join(lines)
+
+
+def _study_source_focus_terms(
+    context: str,
+    previous_questions: list[str],
+    limit: int = 8,
+) -> list[str]:
+    """
+    Extract a small deterministic set of source-specific focus terms.
+
+    This gives llama3.2:3b an explicit concept to target instead of asking it
+    to discover a new concept from a long list of previous questions. Terms
+    already present in earlier questions are deprioritized.
+    """
+
+    words = re.findall(
+        r"\b[a-zA-Z][a-zA-Z0-9]{3,}\b",
+        str(context).lower(),
+    )
+    if not words:
+        return []
+
+    previous_words = set()
+    for question in previous_questions:
+        previous_words.update(quiz_content_keywords(question))
+
+    counts = Counter(
+        word
+        for word in words
+        if word not in QUIZ_STOPWORDS
+    )
+
+    ranked = sorted(
+        counts.items(),
+        key=lambda item: (
+            0 if item[0] not in previous_words else 1,
+            -item[1],
+            -len(item[0]),
+            item[0],
+        ),
+    )
+
+    return [word for word, _ in ranked[:limit]]
+
+
+def _study_previous_fronts_text(previous_fronts: list[str]) -> str:
+    if not previous_fronts:
+        return "None."
+    return "\n".join(
+        f"{index}. {front}"
+        for index, front in enumerate(previous_fronts, start=1)
+    )
+
+
+def _study_source_overlap_with_questions(
+    source: dict,
+    previous_questions: list[str],
+) -> int:
+    """Return a small deterministic overlap score for source diversity."""
+
+    if not previous_questions:
+        return 0
+
+    source_words = quiz_content_keywords(str(source.get("chunk", "")))
+    used_words = set()
+    for question in previous_questions:
+        used_words.update(quiz_content_keywords(question))
+
+    return len(source_words.intersection(used_words))
+
+
+def _select_study_source_order(
+    source_pool: list[dict],
+    item_count: int,
+) -> list[dict]:
+    """
+    Choose document-wide source units rather than simply taking chunk 0, 1, 2... .
+
+    For a 26-chunk document and a 5-question quiz, this intentionally spreads
+    the first five sources across the document. This matters for llama3.2:3b:
+    consecutive RAG chunks often discuss the same concept, which can make a
+    small model repeat the same question even when the source chunks differ.
+    """
+
+    if not source_pool or item_count <= 0:
+        return []
+
+    pool_size = len(source_pool)
+
+    # When the document has enough distinct chunks, spread the requested
+    # sources evenly from beginning to end. If the document is smaller than
+    # the requested number, recycle only after every source has been used.
+    if pool_size >= item_count:
+        selected = []
+        used_indexes = set()
+        for item_number in range(item_count):
+            index = round(
+                item_number * (pool_size - 1) / max(1, item_count - 1)
+            )
+            # Guard against rounding collisions.
+            while index in used_indexes and index + 1 < pool_size:
+                index += 1
+            while index in used_indexes and index - 1 >= 0:
+                index -= 1
+            used_indexes.add(index)
+            selected.append(source_pool[index])
+        return selected
+
+    return [source_pool[index % pool_size] for index in range(item_count)]
+
+
+def build_study_quiz_prompt(
+    document_context: str,
+    difficulty: str,
+    question_number: int,
+    total_questions: int,
+    previous_questions: list[str],
+    source_reuse: bool = False,
+    focus_terms: list[str] | None = None,
+    retry_note: str = "",
+) -> str:
+    """Build one complete MCQ prompt for llama3.2:3b."""
+
+    difficulty_rules = {
+        "easy": "Test a direct definition, fact, purpose, component, or explicitly stated relationship.",
+        "medium": "Test a distinction, relationship, or simple application explicitly supported by the material.",
+        "hard": "Test a deeper comparison or application that can still be answered entirely from the material.",
+    }[difficulty]
+
+    reuse_note = ""
+    if source_reuse:
+        reuse_note = """
+This source has already been used for another item because the document has
+fewer distinct source chunks than the requested number of items. Choose a
+DIFFERENT fact, relationship, example, or concept from this source. Do not
+paraphrase an earlier question.
+"""
+
+    focus_text = ", ".join(focus_terms or []) or "Choose one concrete concept from this source."
+    retry_text = retry_note.strip()
+    if retry_text:
+        retry_text = f"\nRETRY INSTRUCTION:\n{retry_text}\n"
+
+    return f"""
+You are EduMind, an MCA study assistant creating ONE document-grounded MCQ.
+
+Create exactly ONE question using ONLY the STUDY MATERIAL below.
+
+QUESTION {question_number} OF {total_questions}
+DIFFICULTY: {difficulty.upper()}
+{difficulty_rules}
+{reuse_note}
+
+PRIMARY FOCUS TERMS FOR THIS QUESTION:
+{focus_text}
+
+IMPORTANT: Prefer ONE concept represented by the PRIMARY FOCUS TERMS. Do not
+fall back to a generic question about the overall topic when a focus term can
+be tested directly.
+
+PREVIOUSLY TESTED CONCEPT KEYWORDS:
+{_study_previous_questions_text(previous_questions)}
+{retry_text}
+STRICT RULES:
+1. Test exactly one fact or concept.
+2. The correct answer must be explicitly supported by the study material.
+3. Return exactly four options.
+4. Exactly one option is correct.
+5. Every option must answer the same question.
+6. Wrong options must be clearly wrong for this specific question.
+7. Never duplicate or paraphrase a previous question.
+8. If the source contains multiple concepts, choose one not already tested.
+9. Do not use All of the above, None of the above, Both A and B, or combinations.
+10. Do not put A/B/C/D labels inside option strings.
+11. Do not invent information outside the study material.
+12. Keep options concise and similar in grammatical form.
+13. Include a short explanation grounded only in the study material.
+14. Do not create malformed truth-table questions.
+15. Return ONLY valid JSON. No Markdown.
+
+Return exactly:
+{{
+  "question": "...",
+  "options": ["...", "...", "...", "..."],
+  "correct_option": "A",
+  "explanation": "..."
+}}
+
+STUDY MATERIAL:
+{document_context}
+""".strip()
+
+
+def _validate_study_quiz_item(
+    candidate: dict,
+    document_context: str,
+) -> dict:
+    """Validate a complete one-call quiz item locally."""
+
+    validated = validate_single_quiz_question(candidate)
+
+    answer_letter = normalize_answer_letter(
+        candidate.get("correct_option", "")
+    )
+    if answer_letter is None:
+        raise RuntimeError(
+            "Quiz AI returned an invalid correct_option."
+        )
+
+    answer_index = ord(answer_letter) - ord("A")
+    if not 0 <= answer_index < 4:
+        raise RuntimeError(
+            "Quiz AI returned an invalid correct answer index."
+        )
+
+    explanation = str(candidate.get("explanation", "")).strip()
+    if not explanation:
+        raise RuntimeError(
+            "Quiz AI returned an empty explanation."
+        )
+
+    if len(explanation) > 900:
+        explanation = explanation[:900].rstrip()
+
+    # The answer must correspond to one of the returned options.
+    correct_answer = validated["options"][answer_index]
+
+    return {
+        "question": validated["question"],
+        "options": validated["options"],
+        "correct_option": answer_letter,
+        "correct_answer": correct_answer,
+        "explanation": explanation,
+    }
+
+
+def _generate_study_quiz_item(
+    source_contexts: list[str],
+    difficulty: str,
+    question_number: int,
+    total_questions: int,
+    previous_questions: list[str],
+) -> dict:
+    """
+    Generate one quiz item and move through genuinely different source chunks
+    when the model returns malformed or duplicate content.
+    """
+
+    last_error = None
+    contexts = source_contexts or []
+
+    if not contexts:
+        raise RuntimeError("No study source is available for quiz generation.")
+
+    # Do not stop after only three sources. A 3B model can repeat a concept
+    # several times; the correct recovery is to move farther through the
+    # document-wide source pool rather than retrying the same small region.
+    max_attempts = min(len(contexts), max(5, total_questions + 2))
+
+    for attempt, context in enumerate(contexts[:max_attempts], start=1):
+        source_reuse = len(contexts) < total_questions
+        focus_terms = _study_source_focus_terms(
+            context,
+            previous_questions,
+            limit=8,
+        )
+        print(
+            f"Quiz question {question_number}: attempt {attempt}/{max_attempts} "
+            "using a study source..."
+        )
+
+        try:
+            prompt = build_study_quiz_prompt(
+                document_context=context,
+                difficulty=difficulty,
+                question_number=question_number,
+                total_questions=total_questions,
+                previous_questions=previous_questions,
+                source_reuse=source_reuse,
+                focus_terms=focus_terms,
+                retry_note=(
+                    "The previous candidate repeated an already-tested concept. "
+                    "Choose a different focus term from this source."
+                    if attempt > 1
+                    else ""
+                ),
+            )
+            raw_response = ask_ai(prompt, json_mode=True)
+            candidate = extract_single_quiz_question(raw_response)
+            item = _validate_study_quiz_item(candidate, context)
+
+            if any(
+                are_duplicate_questions(item["question"], previous)
+                for previous in previous_questions
+            ):
+                raise RuntimeError(
+                    "Generated quiz question is a duplicate or near-duplicate."
+                )
+
+            return item
+
+        except Exception as error:
+            last_error = error
+            print(
+                f"Quiz question {question_number}: source attempt {attempt} failed: {error}"
+            )
+
+    raise RuntimeError(
+        f"Could not generate quiz question {question_number}: {last_error}"
+    )
+
 
 def generate_quiz(
     retrieved_chunks: list[dict],
@@ -2997,118 +4093,102 @@ def generate_quiz(
     difficulty: str = "medium",
 ) -> list[dict]:
     """
-    Generate a document-grounded quiz with deterministic context diversity.
+    Generate a document-grounded quiz using the final diverse-source design.
 
-    The model still receives focused source windows, but each new question is
-    assigned a window whose content has the least overlap with already accepted
-    question topics. This prevents a small local model from repeatedly choosing
-    the most salient concept in the document.
+    Source diversity is decided before generation. Llama is asked for one
+    complete validated item per call, avoiding the old generation+verification+
+    explanation triple-call architecture.
     """
 
     if not retrieved_chunks:
-        raise ValueError(
-            "No document context is available for quiz generation."
-        )
+        raise ValueError("No document context is available for quiz generation.")
 
-    if not 1 <= num_questions <= 20:
-        raise ValueError(
-            "Number of quiz questions must be between 1 and 20."
-        )
+    try:
+        num_questions = int(num_questions)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Number of quiz questions must be a valid integer.") from error
 
-    difficulty = difficulty.strip().lower()
+    if num_questions not in QUIZ_SUPPORTED_COUNTS:
+        raise ValueError("Number of quiz questions must be 5, 10, 15, or 20.")
+
+    difficulty = str(difficulty or "medium").strip().lower()
     if difficulty not in {"easy", "medium", "hard"}:
-        raise ValueError(
-            "Difficulty must be easy, medium, or hard."
-        )
+        raise ValueError("Difficulty must be easy, medium, or hard.")
 
-    generated_questions = []
-    previous_questions = []
-    rejected_questions = []
-
-    total_chunks = len(retrieved_chunks)
-    window_size = 2 if total_chunks > 1 else 1
-
-    starts = list(range(0, total_chunks, window_size))
-    starts += [
-        start
-        for start in range(1, total_chunks, window_size)
-        if start not in starts
-    ]
-
-    context_windows = []
-    for start in starts:
-        selected = [
-            retrieved_chunks[(start + offset) % total_chunks]
-            for offset in range(window_size)
-        ]
-        context_windows.append(
-            format_retrieved_context(selected)
-        )
-
-    for question_number in range(1, num_questions + 1):
-        print(
-            "\n"
-            f"Preparing question {question_number}/{num_questions}..."
-        )
-
-        # Prefer the least-overlapping context with the concepts already tested.
-        ranked_contexts = []
-        for index, context in enumerate(context_windows):
-            overlap = quiz_question_context_overlap(
-                context,
-                previous_questions,
-            )
-            # Stable rotation gives later questions access to windows that have
-            # not already been the primary window for earlier questions.
-            rotation_distance = (
-                index - (question_number - 1)
-            ) % len(context_windows)
-            ranked_contexts.append((
-                overlap,
-                rotation_distance,
-                index,
-                context,
-            ))
-
-        ranked_contexts.sort(
-            key=lambda item: item[:3]
-        )
-
-        primary_index = ranked_contexts[0][2]
-        document_context = ranked_contexts[0][3]
-
-        alternative_contexts = choose_diverse_quiz_contexts(
-            context_windows=context_windows,
-            accepted_questions=previous_questions,
-            primary_index=primary_index,
-            count=min(3, len(context_windows)),
-        )
-
-        print(
-            f"Question {question_number}: "
-            f"selected context window {primary_index} "
-            f"using lowest topic overlap"
-        )
-
-        question = generate_single_quiz_question(
-            document_context=document_context,
-            difficulty=difficulty,
-            question_number=question_number,
-            previous_questions=previous_questions,
-            rejected_questions=rejected_questions,
-            alternative_contexts=alternative_contexts,
-        )
-
-        generated_questions.append(question)
-        previous_questions.append(question["question"])
-
-    print(
-        "\n"
-        f"Quiz generation completed successfully: "
-        f"{len(generated_questions)} questions."
+    # The route intentionally retrieves the full indexed document (up to the
+    # backend's safe top_k). Do NOT collapse that broad candidate set back to
+    # eight chunks here. That was the bug that caused the previous architecture
+    # to retrieve 26 chunks and then immediately throw 18 of them away.
+    pool_size = len(retrieved_chunks)
+    source_pool = build_study_content_pool(
+        retrieved_chunks,
+        target_count=pool_size,
     )
 
-    return generated_questions
+    if not source_pool:
+        raise ValueError("No usable study sources were available for quiz generation.")
+
+    print(
+        f"Building diverse quiz source pool: {len(source_pool)} source chunks "
+        f"for {num_questions} questions."
+    )
+
+    source_order = _select_study_source_order(
+        source_pool,
+        num_questions,
+    )
+
+    all_questions = []
+    previous_questions = []
+    used_source_indexes = set()
+
+    for question_number, primary_source in enumerate(source_order, start=1):
+        # Prefer the evenly-spaced primary source, then rank the remaining
+        # sources by how little their content overlaps with earlier questions.
+        # This makes duplicate recovery source-aware instead of simply trying
+        # chunks in index order.
+        def source_rank(source: dict):
+            source_index = int(source.get("chunk_index", -1))
+            overlap = _study_source_overlap_with_questions(
+                source,
+                previous_questions,
+            )
+            already_used = 1 if source_index in used_source_indexes else 0
+            return (
+                0 if source is primary_source else 1,
+                already_used,
+                overlap,
+                source_index,
+            )
+
+        ordered_sources = sorted(
+            source_pool,
+            key=source_rank,
+        )
+
+        contexts = [_study_source_context(source) for source in ordered_sources]
+        question = _generate_study_quiz_item(
+            source_contexts=contexts,
+            difficulty=difficulty,
+            question_number=question_number,
+            total_questions=num_questions,
+            previous_questions=previous_questions,
+        )
+
+        all_questions.append(question)
+        previous_questions.append(question["question"])
+        used_source_indexes.add(int(primary_source.get("chunk_index", -1)))
+
+    if len(all_questions) != num_questions:
+        raise RuntimeError(
+            f"Quiz generation returned {len(all_questions)} questions instead of {num_questions}."
+        )
+
+    print(
+        f"Quiz generation completed successfully: {len(all_questions)} questions."
+    )
+    return all_questions
+
 
 # ==================================================
 # FLASHCARD TEXT NORMALIZATION
@@ -3148,25 +4228,26 @@ def are_duplicate_flashcards(
     first: str,
     second: str,
 ) -> bool:
-    """
-    Detect exact or near-duplicate flashcard fronts.
+    """Detect exact or genuine near-duplicate flashcard fronts.
+
+    The comparison deliberately avoids rejecting questions that share a
+    normal template such as ``What is ...?`` but test different concepts.
     """
 
-    first_normalized = normalize_flashcard_text(
-        first
-    )
-
-    second_normalized = normalize_flashcard_text(
-        second
-    )
+    first_normalized = normalize_flashcard_text(first)
+    second_normalized = normalize_flashcard_text(second)
 
     if not first_normalized or not second_normalized:
-
         return False
 
     if first_normalized == second_normalized:
-
         return True
+
+    first_words = set(first_normalized.split())
+    second_words = set(second_normalized.split())
+
+    if not first_words or not second_words:
+        return False
 
     similarity = SequenceMatcher(
         None,
@@ -3174,7 +4255,16 @@ def are_duplicate_flashcards(
         second_normalized,
     ).ratio()
 
-    return similarity >= 0.85
+    # Very short/template questions need a much higher threshold because
+    # normal wording can be almost identical while the tested concept differs.
+    if min(len(first_normalized), len(second_normalized)) < 45:
+        return similarity >= 0.97
+
+    intersection = len(first_words.intersection(second_words))
+    union = len(first_words.union(second_words))
+    token_overlap = intersection / max(union, 1)
+
+    return similarity >= 0.90 and token_overlap >= 0.75
 
 
 # ==================================================
@@ -3807,115 +4897,140 @@ Return JSON only.
 # GENERATE ONE FLASHCARD
 # ==================================================
 
-def generate_single_flashcard(
+def build_study_flashcard_prompt(
     document_context: str,
     difficulty: str,
     card_number: int,
+    total_cards: int,
+    previous_fronts: list[str],
+    source_reuse: bool = False,
+) -> str:
+    """Build one complete document-grounded flashcard prompt."""
+
+    reuse_note = ""
+    if source_reuse:
+        reuse_note = """
+This source has already been used because the document has fewer distinct
+source chunks than the requested number of cards. Choose a DIFFERENT concept,
+fact, relationship, example, or definition from this source.
+"""
+
+    return f"""
+You are EduMind, an MCA study assistant creating ONE revision flashcard.
+
+Create exactly ONE flashcard using ONLY the STUDY MATERIAL below.
+
+CARD {card_number} OF {total_cards}
+DIFFICULTY: {difficulty.upper()}
+{reuse_note}
+
+PREVIOUS FLASHCARD FRONTS:
+{_study_previous_fronts_text(previous_fronts)}
+
+STRICT RULES:
+1. The front must ask one clear study question about one concept.
+2. The back must directly answer the front.
+3. Use only information explicitly supported by the study material.
+4. Do not repeat or paraphrase a previous flashcard front.
+5. If the source has multiple concepts, choose one not already tested.
+6. Keep the back concise but useful for revision.
+7. Do not output a raw or flattened truth table.
+8. Do not invent examples or facts outside the material.
+9. Return ONLY valid JSON. No Markdown.
+
+Return exactly:
+{{
+  "front": "What is ...?",
+  "back": "..."
+}}
+
+STUDY MATERIAL:
+{document_context}
+""".strip()
+
+
+def _generate_study_flashcard_item(
+    source_contexts: list[str],
+    difficulty: str,
+    card_number: int,
+    total_cards: int,
     previous_fronts: list[str],
 ) -> dict:
-    """
-    Generate and validate one flashcard.
+    """Generate one flashcard with broad source fallback and concept diversity."""
 
-    Three attempts are allowed.
-    """
+    if not source_contexts:
+        raise RuntimeError("No study source is available for flashcard generation.")
+
+    # The previous implementation tried only 3 sources. That was the remaining
+    # reliability bug: with 26 document chunks, a small model can legitimately
+    # produce 3 duplicate/invalid cards in a row even though many untouched
+    # source chunks are available. Keep the primary source first, then prefer
+    # sources with the least lexical overlap with concepts already used.
+    primary_context = source_contexts[0]
+    fallback_contexts = source_contexts[1:]
+
+    if previous_fronts:
+        previous_words = set()
+        for front in previous_fronts:
+            previous_words.update(quiz_content_keywords(front))
+
+        fallback_contexts = sorted(
+            fallback_contexts,
+            key=lambda context: len(
+                quiz_content_keywords(context).intersection(previous_words)
+            ),
+        )
+
+    ordered_contexts = [primary_context, *fallback_contexts]
+
+    # Give the generator enough room to move through the document. The cap
+    # scales with requested card count while avoiding an unbounded retry loop.
+    max_attempts = min(
+        len(ordered_contexts),
+        max(7, total_cards + 2),
+    )
 
     last_error = None
 
-    for attempt in range(
-        1,
-        4,
-    ):
-
+    for attempt, context in enumerate(ordered_contexts[:max_attempts], start=1):
+        source_reuse = len(source_contexts) < total_cards
         print(
-            f"Flashcard {card_number}: "
-            f"generation attempt {attempt}/3..."
+            f"Flashcard {card_number}: source attempt {attempt}/{max_attempts}..."
         )
-
-        prompt = build_single_flashcard_prompt(
-            document_context=document_context,
-            difficulty=difficulty,
-            card_number=card_number,
-            previous_fronts=previous_fronts,
-            retry=attempt > 1,
-        )
-
-        raw_response = None
 
         try:
-
-            raw_response = ask_ai(
-                prompt,
-                json_mode=True,
+            prompt = build_study_flashcard_prompt(
+                document_context=context,
+                difficulty=difficulty,
+                card_number=card_number,
+                total_cards=total_cards,
+                previous_fronts=previous_fronts,
+                source_reuse=source_reuse,
             )
+            raw_response = ask_ai(prompt, json_mode=True)
+            candidate = extract_single_flashcard(raw_response)
+            flashcard = validate_single_flashcard(candidate)
 
-            flashcard_data = extract_single_flashcard(
-                raw_response
-            )
-
-            flashcard = validate_single_flashcard(
-                flashcard_data
-            )
-
-            # --------------------------------------------------
-            # Duplicate protection
-            # --------------------------------------------------
-
-            for previous_front in previous_fronts:
-
-                if are_duplicate_flashcards(
-                    flashcard["front"],
-                    previous_front,
-                ):
-
-                    raise RuntimeError(
-                        "Generated flashcard is a duplicate "
-                        "or near-duplicate of an earlier flashcard."
-                    )
-
-            print(
-                f"Flashcard {card_number}: "
-                f"generation succeeded on attempt {attempt}."
-            )
+            if any(
+                are_duplicate_flashcards(flashcard["front"], previous)
+                for previous in previous_fronts
+            ):
+                raise RuntimeError(
+                    "Generated flashcard is a duplicate or near-duplicate."
+                )
 
             return flashcard
 
         except Exception as error:
-
             last_error = error
-
             print(
-                f"Flashcard {card_number}: "
-                f"attempt {attempt} failed:",
-                error,
+                f"Flashcard {card_number}: source attempt {attempt} failed: {error}"
             )
 
-            if raw_response is not None:
-
-                print(
-                    "\n"
-                    "================ RAW OLLAMA FLASHCARD RESPONSE "
-                    "================"
-                )
-
-                print(
-                    raw_response
-                )
-
-                print(
-                    "================ END RAW OLLAMA RESPONSE "
-                    "================\n"
-                )
-
     raise RuntimeError(
-        f"Could not generate valid flashcard "
-        f"{card_number} after 3 attempts: "
-        f"{last_error}"
+        f"Could not generate flashcard {card_number}: {last_error}"
     )
 
-
-# ==================================================
-# GENERATE FLASHCARDS
-# ==================================================
 
 def generate_flashcards(
     retrieved_chunks: list[dict],
@@ -3923,87 +5038,74 @@ def generate_flashcards(
     difficulty: str = "medium",
 ) -> list[dict]:
     """
-    Generate document-grounded flashcards.
+    Generate document-grounded flashcards using the shared diverse source pool.
 
-    Cards are generated one at a time and each card
-    uses a different retrieved chunk where possible.
+    The generator uses a different source before recycling a source, which
+    prevents the old chunk-1/chunk-2/chunk-... cycling problem.
     """
 
     if not retrieved_chunks:
-
         raise ValueError(
-            "No document context is available "
-            "for flashcard generation."
+            "No document context is available for flashcard generation."
         )
 
-    if not 1 <= num_cards <= 20:
+    try:
+        num_cards = int(num_cards)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Number of flashcards must be a valid integer.") from error
 
-        raise ValueError(
-            "Number of flashcards must be between 1 and 20."
-        )
+    if num_cards not in {5, 10, 15, 20}:
+        raise ValueError("Number of flashcards must be 5, 10, 15, or 20.")
 
-    difficulty = difficulty.strip().lower()
+    difficulty = str(difficulty or "medium").strip().lower()
+    if difficulty not in {"easy", "medium", "hard"}:
+        raise ValueError("Difficulty must be easy, medium, or hard.")
 
-    if difficulty not in {
-        "easy",
-        "medium",
-        "hard",
-    }:
+    # Keep the entire broad candidate pool. The source allocator below will
+    # spread cards across the document before any source is recycled.
+    pool_size = len(retrieved_chunks)
+    source_pool = build_study_content_pool(
+        retrieved_chunks,
+        target_count=pool_size,
+    )
 
-        raise ValueError(
-            "Difficulty must be easy, medium, or hard."
-        )
+    if not source_pool:
+        raise ValueError("No usable study sources were available for flashcard generation.")
+
+    print(
+        f"Building diverse flashcard source pool: {len(source_pool)} source chunks "
+        f"for {num_cards} cards."
+    )
+
+    source_order = _select_study_source_order(
+        source_pool,
+        num_cards,
+    )
 
     generated_flashcards = []
-
     previous_fronts = []
 
-    for card_number in range(
-        1,
-        num_cards + 1,
-    ):
+    for card_number, primary_source in enumerate(source_order, start=1):
+        ordered_sources = [primary_source]
+        for source in source_pool:
+            if source is primary_source:
+                continue
+            ordered_sources.append(source)
 
-        print(
-            "\n"
-            f"Preparing flashcard "
-            f"{card_number}/{num_cards}..."
-        )
-
-        # --------------------------------------------------
-        # Rotate through retrieved chunks.
-        # --------------------------------------------------
-
-        chunk_index = (
-            card_number - 1
-        ) % len(retrieved_chunks)
-
-        document_context = format_retrieved_context(
-            [
-                retrieved_chunks[
-                    chunk_index
-                ]
-            ]
-        )
-
-        flashcard = generate_single_flashcard(
-            document_context=document_context,
+        contexts = [_study_source_context(source) for source in ordered_sources]
+        flashcard = _generate_study_flashcard_item(
+            source_contexts=contexts,
             difficulty=difficulty,
             card_number=card_number,
+            total_cards=num_cards,
             previous_fronts=previous_fronts,
         )
 
-        generated_flashcards.append(
-            flashcard
-        )
-
-        previous_fronts.append(
-            flashcard["front"]
-        )
+        generated_flashcards.append(flashcard)
+        previous_fronts.append(flashcard["front"])
 
     print(
-        "\n"
-        f"Flashcard generation completed successfully: "
-        f"{len(generated_flashcards)} cards."
+        f"Flashcard generation completed successfully: {len(generated_flashcards)} cards."
     )
-
     return generated_flashcards
+
