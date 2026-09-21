@@ -1,4 +1,13 @@
 .env
+
 venv/
 __pycache__/
 *.pyc
+
+uploads/
+vector_store/
+
+*.log
+.DS_Store
+# Local deployment backups
+*_before_*.py

@@ -43,7 +43,7 @@ function Library() {
         setError("");
 
         const response = await fetch(
-          "http://127.0.0.1:8000/api/materials/",
+          `${import.meta.env.VITE_API_URL}/api/materials/`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -115,7 +115,7 @@ function Library() {
       formData.append("file", file);
 
       const response = await fetch(
-        "http://127.0.0.1:8000/api/materials/",
+        `${import.meta.env.VITE_API_URL}/api/materials/`,
         {
           method: "POST",
           headers: {
@@ -199,7 +199,7 @@ function Library() {
       }
 
       const response = await fetch(
-        `http://127.0.0.1:8000/api/materials/${id}`,
+        `${import.meta.env.VITE_API_URL}/api/materials/${id}`,
         {
           method: "DELETE",
           headers: {
@@ -255,7 +255,7 @@ function Library() {
       });
 
       const response = await fetch(
-        `http://127.0.0.1:8000/api/materials/${id}?${params.toString()}`,
+        `${import.meta.env.VITE_API_URL}/api/materials/${id}?${params.toString()}`,
         {
           method: "PATCH",
           headers: {

@@ -20,8 +20,8 @@ function MaterialViewer() {
   const [isContentLoading, setIsContentLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const fileUrl = `http://127.0.0.1:8000/api/materials/${id}/file`;
-  const contentUrl = `http://127.0.0.1:8000/api/materials/${id}/content`;
+  const fileUrl = `${import.meta.env.VITE_API_URL}/api/materials/${id}/file`;
+  const contentUrl = `${import.meta.env.VITE_API_URL}/api/materials/${id}/content`;
 
   useEffect(() => {
     const fetchMaterial = async () => {
@@ -30,7 +30,7 @@ function MaterialViewer() {
         setError("");
 
         const response = await fetch(
-          "http://127.0.0.1:8000/api/materials/"
+          `${import.meta.env.VITE_API_URL}/api/materials/`
         );
 
         if (!response.ok) {

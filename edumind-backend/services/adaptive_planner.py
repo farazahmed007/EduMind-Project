@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 import json
+import os
 import re
 from typing import Any
 
@@ -9,12 +10,19 @@ from models.analytics import AnalyticsEvent
 from models.material import Material
 from models.planner import StudyTask
 from models.user import User
-from services.ai_service import ask_ai
 
 
 # ==================================================
 # CONFIGURATION
 # ==================================================
+
+AI_ENABLED = os.getenv("AI_ENABLED", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
 
 RECENT_ACTIVITY_DAYS = 14
 
@@ -1539,6 +1547,104 @@ def generate_recommendations(
                 "learning to receive adaptive recommendations."
             ),
         }
+
+    # --------------------------------------------------
+    # Lightweight deployment fallback
+    # --------------------------------------------------
+
+    if not AI_ENABLED:
+        fallback_profiles = profiles[
+            :MAX_RECOMMENDATIONS
+        ]
+
+        recommendations = [
+            {
+                "material_id": profile[
+                    "material_id"
+                ],
+
+                "material_title": profile[
+                    "material_title"
+                ],
+
+                "priority": profile[
+                    "priority_level"
+                ],
+
+                "reason": (
+                    "This material has a learning priority "
+                    f"score of {profile['priority_score']}."
+                ),
+
+                "action": profile[
+                    "recommended_action"
+                ],
+
+                "suggested_duration_minutes": 45,
+
+                "priority_score": profile[
+                    "priority_score"
+                ],
+
+                "average_quiz_score": profile[
+                    "average_quiz_score"
+                ],
+
+                "recent_quiz_average": profile[
+                    "recent_quiz_average"
+                ],
+
+                "previous_quiz_average": profile[
+                    "previous_quiz_average"
+                ],
+
+                "quiz_score_change": profile[
+                    "quiz_score_change"
+                ],
+
+                "quiz_score_trend": profile[
+                    "quiz_score_trend"
+                ],
+
+                "quiz_attempts": profile[
+                    "quiz_attempts"
+                ],
+
+                "days_since_activity": profile[
+                    "days_since_activity"
+                ],
+
+                "total_related_tasks": profile[
+                    "total_related_tasks"
+                ],
+
+                "completed_related_tasks": profile[
+                    "completed_related_tasks"
+                ],
+
+                "incomplete_related_tasks": profile[
+                    "incomplete_related_tasks"
+                ],
+
+                "task_completion_rate": profile[
+                    "task_completion_rate"
+                ],
+            }
+            for profile in fallback_profiles
+        ]
+
+        return {
+            "generated_at": analysis[
+                "generated_at"
+            ],
+            "recommendations": recommendations,
+        }
+
+    # --------------------------------------------------
+    # AI recommendations
+    # --------------------------------------------------
+
+    from services.ai_service import ask_ai
 
     prompt = _build_ai_recommendation_prompt(
         analysis

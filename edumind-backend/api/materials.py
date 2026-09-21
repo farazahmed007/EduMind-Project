@@ -1,4 +1,5 @@
 from typing import Literal
+import os
 import shutil
 import subprocess
 import tempfile
@@ -16,20 +17,33 @@ from pathlib import Path
 from uuid import uuid4
 from pydantic import BaseModel, Field
 
-from services.ai_service import (
-    generate_summary,
-    ask_tutor,
-    extract_document_text,
-    generate_quiz,
-    generate_flashcards,
-)
+# Deployment switch:
+# Local development defaults to full AI/RAG functionality.
+# Set AI_ENABLED=false on lightweight deployments such as Render.
+AI_ENABLED = os.getenv("AI_ENABLED", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
-from services.rag_service import (
-    build_vector_store,
-    vector_store_exists,
-    retrieve_relevant_chunks,
-    delete_vector_store,
-)
+# Keep the local AI/RAG architecture intact, but avoid importing
+# local-only AI/RAG modules when AI is disabled on a lightweight host.
+if AI_ENABLED:
+    from services.ai_service import (
+        generate_summary,
+        ask_tutor,
+        extract_document_text,
+        generate_quiz,
+        generate_flashcards,
+    )
+
+    from services.rag_service import (
+        build_vector_store,
+        vector_store_exists,
+        retrieve_relevant_chunks,
+        delete_vector_store,
+    )
 
 from core.database import get_db
 from core.security import get_current_user
@@ -538,7 +552,7 @@ async def create_material(
     # Build RAG index for supported AI documents
     # --------------------------------------------------
 
-    if file_path.suffix.lower() in AI_SUPPORTED_EXTENSIONS:
+    if AI_ENABLED and file_path.suffix.lower() in AI_SUPPORTED_EXTENSIONS:
 
         try:
 
@@ -729,6 +743,16 @@ def get_rendered_material_file(
             ),
         )
 
+    if not AI_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Office document rendering is disabled on the "
+                "lightweight deployment. Use the local EduMind demo "
+                "for DOCX/PPTX rendering."
+            ),
+        )
+
     rendered_path = (
         RENDERED_DIR
         / f"material_{material_id}.pdf"
@@ -809,6 +833,16 @@ def get_material_content(
     validate_ai_document(
         file_path
     )
+
+    if not AI_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Document content extraction is disabled on the "
+                "lightweight deployment. Use the local EduMind demo "
+                "for AI document processing."
+            ),
+        )
 
     try:
 
@@ -909,18 +943,19 @@ def delete_material(
     # Delete vector store
     # --------------------------------------------------
 
-    try:
+    if AI_ENABLED:
+        try:
 
-        delete_vector_store(
-            material_id
-        )
+            delete_vector_store(
+                material_id
+            )
 
-    except Exception as error:
+        except Exception as error:
 
-        print(
-            "Vector store deletion error:",
-            error,
-        )
+            print(
+                "Vector store deletion error:",
+                error,
+            )
 
     # --------------------------------------------------
     # Delete database record
@@ -977,6 +1012,12 @@ def generate_material_summary(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+
+    if not AI_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="AI features are disabled on the lightweight deployment. Use the local EduMind demo for AI summaries.",
+        )
 
     material = get_user_material(
         material_id=material_id,
@@ -1049,6 +1090,12 @@ def ask_material_tutor(
     Answer a student's question using document-grounded
     retrieval and conversation history.
     """
+
+    if not AI_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="AI Tutor is disabled on the lightweight deployment. Use the local EduMind demo for AI Tutor and RAG.",
+        )
 
     material = get_user_material(
         material_id=material_id,
@@ -1206,6 +1253,12 @@ def generate_material_quiz(
     from the selected study material.
     """
 
+    if not AI_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="AI quiz generation is disabled on the lightweight deployment. Use the local EduMind demo for AI quizzes.",
+        )
+
     material = get_user_material(
         material_id=material_id,
         current_user=current_user,
@@ -1342,6 +1395,12 @@ def generate_material_flashcards(
     Generate document-grounded flashcards
     from the selected study material.
     """
+
+    if not AI_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="AI flashcard generation is disabled on the lightweight deployment. Use the local EduMind demo for AI flashcards.",
+        )
 
     # --------------------------------------------------
     # Find Material
