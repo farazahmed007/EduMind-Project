@@ -1,6 +1,9 @@
 .env
+edumind.db
+*.db
 
 venv/
+.venv/
 __pycache__/
 *.pyc
 
